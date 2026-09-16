@@ -89,6 +89,38 @@ stateDiagram-v2
     FAILED --> [*]
 ```
 
+## Tool call pipeline (every proposal passes all gates)
+
+```mermaid
+flowchart TD
+    P["planner proposal: ToolCall(name, args)"] --> V{"known tool + schema valid?"}
+    V -->|"no"| REJ["rejected Observation (recorded, fed back as history)"]
+    V -->|"yes"| POL{"permission policy?"}
+    POL -->|"DENY / unapproved ASK"| REJ
+    POL -->|"AUTO / approved"| JAIL{"path jail (if path arg)"}
+    JAIL -->|"escape"| REJ
+    JAIL -->|"inside"| EXEC["execute (allowlist + timeout for EXECUTION class)"]
+    EXEC --> OBS["Observation: ok, output excerpt or error, latency"]
+    style REJ fill:#f5d5d3
+    style EXEC fill:#d4f0d4
+```
+
+## Verification: the only exit to COMPLETE
+
+```mermaid
+flowchart LR
+    OBS["OBSERVE"] --> VER{"VERIFY state: re-run suite"}
+    VER -->|"exit=0"| DONE["COMPLETE"]
+    VER -->|"fail"| REP["REPLAN (budget-limited)"]
+    REP --> PLAN["PLAN"]
+    REP -->|"replans exhausted"| FAIL["FAILED"]
+    style DONE fill:#d4f0d4
+    style FAIL fill:#f5d5d3
+```
+
+A planner claiming success changes nothing: COMPLETE is reachable only from
+VERIFY, and VERIFY re-runs the test suite through the allowlisted tool.
+
 Components (src/repo_engineer/):
 
 - `state.py` - `State` enum, legal-transition table, serializable `AgentState`,
