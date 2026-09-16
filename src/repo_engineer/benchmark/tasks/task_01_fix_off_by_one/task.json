@@ -1,0 +1,1 @@
+{"task_id": "task_01_fix_off_by_one", "description": "The cart total skips the last item; fix the loop and make the tests pass.", "verify_cmd": "python -m pytest tests/ -q"}

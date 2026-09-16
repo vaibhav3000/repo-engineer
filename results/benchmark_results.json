@@ -1,0 +1,67 @@
+{
+  "environment": {
+    "python_results_root": "runs"
+  },
+  "tasks": [
+    {
+      "task_id": "task_01_fix_off_by_one",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 5,
+      "replans": 0,
+      "files_changed": [
+        "shop/cart.py"
+      ],
+      "errors": [],
+      "wall_time_s": 0.99,
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_02_failing_test",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 5,
+      "replans": 1,
+      "files_changed": [
+        "billing/invoice.py"
+      ],
+      "errors": [],
+      "wall_time_s": 1.46,
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_03_add_missing_test",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 5,
+      "replans": 0,
+      "files_changed": [
+        "tests/test_slug.py"
+      ],
+      "errors": [],
+      "wall_time_s": 0.96,
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_04_constrained_refactor",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 7,
+      "replans": 0,
+      "files_changed": [
+        "orders/pricing.py",
+        "orders/service.py"
+      ],
+      "errors": [],
+      "wall_time_s": 0.95,
+      "failed_tool_calls": 0
+    }
+  ],
+  "summary": {
+    "n_tasks": 4,
+    "n_success": 4,
+    "success_rate": 1.0,
+    "total_replans": 1,
+    "total_failed_tool_calls": 0
+  }
+}

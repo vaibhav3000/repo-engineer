@@ -1,0 +1,1 @@
+{"task_id": "task_02_failing_test", "description": "tests/test_invoice.py fails: the tax rate constant is wrong. Make the suite green.", "verify_cmd": "python -m pytest tests/ -q"}

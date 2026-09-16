@@ -1,0 +1,1 @@
+{"task_id": "task_03_add_missing_test", "description": "web/slug.py has no test coverage. Add tests/test_slug.py covering basic, punctuation and whitespace cases.", "verify_cmd": "python -m pytest tests/ -q"}
