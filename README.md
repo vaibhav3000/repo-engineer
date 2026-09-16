@@ -121,6 +121,20 @@ flowchart LR
 A planner claiming success changes nothing: COMPLETE is reachable only from
 VERIFY, and VERIFY re-runs the test suite through the allowlisted tool.
 
+## Benchmark flow (deterministic and live modes)
+
+```mermaid
+flowchart LR
+    T["4 tasks: bug fix,<br/>failing test, missing test,<br/>refactor"] --> C["fresh workspace copy<br/>per task (isolation)"]
+    C --> R["AgentRuntime:<br/>ScriptedPlanner or live Gemini"]
+    R --> V["VERIFY: hidden test suite"]
+    V --> RES["results/benchmark_results.json<br/>(deterministic: 4/4)<br/>results/llm_benchmark_results.json<br/>(live: 2/2)"]
+    style V fill:#d4f0d4
+```
+
+Deterministic results and live-LLM results are recorded in separate files and
+never mixed.
+
 Components (src/repo_engineer/):
 
 - `state.py` - `State` enum, legal-transition table, serializable `AgentState`,
