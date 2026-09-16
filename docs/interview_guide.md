@@ -96,3 +96,39 @@ later regression comparisons of agent behavior.
 `list_tree` and `search` are bounded/truncated by design. The planner history
 is the unbounded part today; a production LLMPlanner would need history
 summarization. Stated as a limitation.
+
+## Deterministic vs real-LLM mode
+
+**Why keep a scripted planner at all when a real LLM can drive the agent?**
+Because they measure different things. The scripted benchmark is a regression
+harness: byte-stable, free, offline, and it isolates the runtime machinery.
+The LLM benchmark (`results/llm_benchmark_results.json`, gemini-2.5-flash)
+demonstrates end-to-end capability but varies with the provider. Confusing the
+two is how projects end up claiming un-reproducible numbers.
+
+**What changed when the real LLM was wired in?**
+Almost nothing in the runtime. `LLMPlanner` packages the task, tool schemas
+and the last 10 history entries into a prompt, parses a JSON reply, and
+returns a ToolCall - which flows through exactly the same validation, jail,
+permission policy and verification as the scripted proposals. That is the
+design claim proven in practice: the safety boundary does not care who
+proposes the action.
+
+**What did the live run demonstrate beyond the scripted one?**
+Recovery from provider failures: the gemini run hit HTTP 429 twice mid-task;
+the runtime counted them as recoverable planner errors, the provider's backoff
+absorbed them, and the run still ended in COMPLETE with a green suite
+(recorded in the committed results, `planner_errors` in the trace). The model
+also chose its own edits (it wrote a test file with different cases than the
+scripted recipe) - capability, not just machinery.
+
+**What are the LLM-mode's limits?**
+Sample size: two tasks, once each - a demonstration, not a leaderboard.
+Nondeterminism: temperature 0 reduces but does not eliminate variance, and the
+provider can change the model under the same name. Cost/latency: every step is
+an API round trip. None of the safety properties depend on the model behaving.
+
+**How do you keep the API key out of the repo?**
+The key is read from an environment variable at call time (`GEMINI_API_KEY` by
+default, configurable via `REPO_ENGINEER_LLM_KEY_ENV`). Traces and results
+record the model name and token counts, never credentials.

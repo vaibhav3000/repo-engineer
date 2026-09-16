@@ -132,12 +132,25 @@ def test_ask_policy_requires_callback(tmp_path):
 
 
 def test_llm_planner_requires_config(monkeypatch):
-    monkeypatch.delenv("REPO_ENGINEER_LLM_PROVIDER", raising=False)
-    monkeypatch.delenv("REPO_ENGINEER_LLM_MODEL", raising=False)
+    for var in ("REPO_ENGINEER_LLM_PROVIDER", "REPO_ENGINEER_LLM_MODEL",
+                "REPO_ENGINEER_LLM_BASE_URL", "REPO_ENGINEER_LLM_KEY_ENV",
+                "GEMINI_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
     from repo_engineer.planner import LLMPlanner
 
     with pytest.raises(ConfigurationError):
         LLMPlanner()
+
+
+def test_llm_planner_accepts_recorded_actions():
+    """RecordedPlanner: deterministic test double for the LLM plumbing."""
+    from repo_engineer.planner import RecordedPlanner
+    from repo_engineer.state import ToolCall
+
+    planner = RecordedPlanner([ToolCall("search", {"pattern": "x"}), None])
+    assert planner.next_action({"task_id": "t"}, []) == ToolCall("search", {"pattern": "x"})
+    assert planner.next_action({"task_id": "t"}, []) is None
+    assert planner.next_action({"task_id": "t"}, []) is None
 
 
 # ---------------------------------------------------------------- runtime + harness

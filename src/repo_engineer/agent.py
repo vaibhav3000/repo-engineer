@@ -62,7 +62,17 @@ class AgentRuntime:
                 break
             if state.state is not State.PLAN:
                 machine.transition(State.PLAN)
-            action = self.planner.next_action(task, history)
+            action = None
+            try:
+                action = self.planner.next_action(task, history)
+            except Exception as exc:  # noqa: BLE001 - planner/API failure is recoverable
+                state.planner_errors += 1
+                state.errors.append(f"planner error: {type(exc).__name__}: {exc}"[:200])
+                if state.planner_errors >= 3:
+                    machine.transition(State.FAILED)
+                    break
+                continue
+            state.planner_errors = 0
             if action is None:
                 machine.transition(State.VERIFY)
             else:
@@ -82,7 +92,8 @@ class AgentRuntime:
                 machine.transition(State.OBSERVE)
                 state.observations.append(_observation_dict(observation))
                 history.append({"tool": action.tool, "args": _jsonable(action.args),
-                                "ok": observation.ok, "error": observation.error})
+                                "ok": observation.ok, "error": observation.error,
+                                "output": observation.output_excerpt[:400]})
 
                 if action.tool == "run_tests":
                     passed = observation.ok and "exit=0" in observation.output_excerpt
@@ -128,15 +139,23 @@ class AgentRuntime:
         return state
 
     def summary(self, state: AgentState) -> dict[str, Any]:
-        return {
+        out = {
             "task_id": state.task_id,
             "success": state.verified and state.state is State.COMPLETE,
             "final_state": state.state.value,
             "steps": state.steps_used,
             "replans": state.replans,
+            "planner_errors": state.planner_errors,
             "files_changed": state.files_changed,
             "errors": state.errors,
         }
+        # LLM planners expose token accounting; deterministic planners do not.
+        if hasattr(self.planner, "total_prompt_tokens"):
+            out["llm_calls"] = self.planner.calls
+            out["llm_prompt_tokens"] = self.planner.total_prompt_tokens
+            out["llm_completion_tokens"] = self.planner.total_completion_tokens
+            out["llm_model"] = self.planner.model
+        return out
 
 
 def _observation_dict(observation: Observation) -> dict[str, Any]:

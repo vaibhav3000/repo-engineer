@@ -1,14 +1,19 @@
 """Planners: propose actions for the agent runtime.
 
 The planner is the "LLM" part of the agent; the runtime is everything else.
-Two planners ship:
+Three planners ship:
 
-- ScriptedPlanner: a deterministic, recipe-based policy used by the benchmark
-  so runs are reproducible with zero API keys. It demonstrates the runtime
-  machinery (validation, jail, state machine, verification), not intelligence.
-- LLMPlanner: the intended production planner. It is a thin stub that reads
-  provider/model configuration from environment variables and raises a clear
-  ConfigurationError when unset — no network calls happen anywhere in tests.
+- ScriptedPlanner: deterministic, recipe-based policy used by the reproducible
+  benchmark. Zero API keys, zero network. It exercises the runtime machinery
+  (validation, jail, state machine, verification) with known-good steps.
+- LLMPlanner: a real planner backed by an OpenAI-compatible chat provider
+  (default: Gemini). It sees the task, the tool schemas and the truncated
+  execution history, and must answer with a JSON tool call. The runtime still
+  validates, permission-checks and jails everything the model proposes, and
+  completion still requires a green test suite - the model cannot claim its
+  way to COMPLETE.
+- RecordedPlanner: replays a previously captured LLM trajectory (used by tests
+  so no network is needed to test the planner plumbing).
 """
 
 from __future__ import annotations
@@ -18,7 +23,34 @@ import json
 import os
 from typing import Any
 
+from .llm_provider import OpenAICompatProvider, ProviderError
 from .state import ToolCall
+
+# Mirrors ToolRegistry's default specs; the runtime remains the authority and
+# rejects anything the registry would reject.
+TOOL_CATALOG = """You may call exactly one tool per turn, as JSON: {"tool": "<name>", "args": {...}}
+
+Tools:
+- list_tree {}  -> bounded file listing
+- search {"pattern": str, "glob": str (optional, default "**/*.py")}  -> regex matches as file:line:text
+- read_file {"path": str, "start_line": int (opt), "end_line": int (opt)}  -> numbered lines
+- apply_edit {"path": str, "old_text": str, "new_text": str}  -> replaces EXACTLY ONE occurrence; 0 or 2+ matches is an error
+- write_file {"path": str, "content": str}  -> creates a NEW file; refuses to overwrite
+- git_diff {}  -> current changes
+- run_tests {"cmd": str}  -> only "python -m pytest ..." or "python -m unittest ..." allowed
+
+Rules:
+- Paths are relative to the workspace root. The runtime rejects anything else.
+- When you believe the task is done, reply {"done": true} - the runtime will
+  then run the verification suite; done is only accepted if tests pass.
+- Reply with ONLY the JSON object, no prose."""
+
+SYSTEM_PROMPT = (
+    "You are an autonomous software engineering agent. You modify a repository "
+    "through validated tool calls to complete the given task. Be precise and "
+    "minimal: locate the relevant code, make the smallest correct change, and "
+    "verify with the test suite."
+)
 
 
 class ConfigurationError(RuntimeError):
@@ -26,7 +58,7 @@ class ConfigurationError(RuntimeError):
 
 
 class Planner(abc.ABC):
-    """Proposes the next action(s) given the task and execution history."""
+    """Proposes the next action given the task and execution history."""
 
     name: str = "planner"
 
@@ -41,10 +73,9 @@ class Planner(abc.ABC):
 class ScriptedPlanner(Planner):
     """Deterministic recipe planner keyed by task['task_id'].
 
-    Each recipe is a list of ToolCall templates; special steps reference
-    facts discovered at runtime (e.g. files found by search). This is honest
-    scripted automation: the recipes encode WHERE a fix goes for the fixed
-    benchmark tasks, while the runtime still validates and verifies everything.
+    Each recipe is a fixed list of ToolCalls. This is the reproducible
+    benchmark mode: no API keys, no network, byte-stable results. It measures
+    the runtime, not model intelligence.
     """
 
     name = "scripted"
@@ -65,33 +96,96 @@ class ScriptedPlanner(Planner):
         return recipe[self._cursor]
 
 
+DEFAULT_PROVIDER_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+DEFAULT_PROVIDER_KEY_ENV = "GEMINI_API_KEY"
+DEFAULT_PROVIDER_MODEL = "gemini-2.5-flash"
+
+
 class LLMPlanner(Planner):
-    """Planner stub for a real LLM backend (configured via environment)."""
+    """Real planner backed by an OpenAI-compatible chat provider.
+
+    Configuration (environment variables):
+      REPO_ENGINEER_LLM_PROVIDER  "gemini" (default) or "custom"
+      REPO_ENGINEER_LLM_MODEL     model name (default: gemini-2.5-flash)
+      REPO_ENGINEER_LLM_BASE_URL  required when provider is "custom"
+      REPO_ENGINEER_LLM_KEY_ENV   name of the env var holding the API key
+                                  (default GEMINI_API_KEY; the key itself is
+                                  never configured here, only read at call time)
+
+    The planner proposes; it does not decide. Every proposal passes through
+    ToolRegistry validation, the permission policy and the workspace jail, and
+    the runtime only accepts completion on a green verification suite.
+    """
 
     name = "llm"
 
     def __init__(self) -> None:
-        provider = os.environ.get("REPO_ENGINEER_LLM_PROVIDER")
-        model = os.environ.get("REPO_ENGINEER_LLM_MODEL")
-        if not provider or not model:
+        provider = os.environ.get("REPO_ENGINEER_LLM_PROVIDER", "gemini").lower()
+        model = os.environ.get("REPO_ENGINEER_LLM_MODEL", DEFAULT_PROVIDER_MODEL)
+        key_env = os.environ.get("REPO_ENGINEER_LLM_KEY_ENV", DEFAULT_PROVIDER_KEY_ENV)
+        if provider == "gemini":
+            base_url = DEFAULT_PROVIDER_BASE_URL
+        elif provider == "custom":
+            base_url = os.environ.get("REPO_ENGINEER_LLM_BASE_URL", "")
+            if not base_url:
+                raise ConfigurationError(
+                    "REPO_ENGINEER_LLM_BASE_URL is required when provider is 'custom'"
+                )
+        else:
+            raise ConfigurationError(f"unknown provider {provider!r}")
+        if not os.environ.get(key_env, "").strip():
             raise ConfigurationError(
-                "LLMPlanner requires REPO_ENGINEER_LLM_PROVIDER and "
-                "REPO_ENGINEER_LLM_MODEL environment variables (e.g. "
-                "'openai' + 'gpt-4o-mini'); no network calls are made by tests."
+                f"environment variable {key_env} is not set; the LLM planner has "
+                "no credentials. Set it or use the deterministic ScriptedPlanner."
             )
-        self.provider = provider
+        self.provider = OpenAICompatProvider(
+            base_url=base_url, api_key_env=key_env, model=model
+        )
         self.model = model
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.calls = 0
 
     def next_action(self, task: dict[str, Any], history: list[dict[str, Any]]) -> ToolCall | None:
-        raise ConfigurationError(
-            "LLMPlanner backend integration is intentionally left as a documented "
-            "extension point; the benchmark uses ScriptedPlanner for reproducibility."
+        user = (
+            f"Task: {task.get('description', task.get('task_id', ''))}\n\n"
+            f"Execution history (newest last; outputs truncated):\n"
+            f"{json.dumps(history[-10:], indent=1, default=str)}\n\n"
+            f"{TOOL_CATALOG}"
         )
+        data, resp = self.provider.chat_json(SYSTEM_PROMPT, user)
+        self.calls += 1
+        self.total_prompt_tokens += resp.prompt_tokens
+        self.total_completion_tokens += resp.completion_tokens
+        if data.get("done"):
+            return None
+        tool = data.get("tool")
+        args = data.get("args", {})
+        if not isinstance(tool, str) or not isinstance(args, dict):
+            raise ProviderError(f"planner returned malformed action: {data!r}")
+        return ToolCall(tool, args)
+
+
+class RecordedPlanner(Planner):
+    """Replays captured actions; deterministic test double for LLMPlanner."""
+
+    name = "recorded"
+
+    def __init__(self, actions: list[ToolCall | None]) -> None:
+        self.actions = list(actions)
+        self._i = 0
+
+    def next_action(self, task: dict[str, Any], history: list[dict[str, Any]]) -> ToolCall | None:
+        if self._i >= len(self.actions):
+            return None
+        action = self.actions[self._i]
+        self._i += 1
+        return action
 
 
 # ---------------------------------------------------------------------------
-# Benchmark recipes. Each step is executed and validated by the runtime; the
-# final step of every recipe leaves the workspace to be verified by tests.
+# Deterministic-benchmark recipes. Each step is executed and validated by the
+# runtime; the final step leaves the workspace to be verified by tests.
 # ---------------------------------------------------------------------------
 
 RECIPES: dict[str, list[ToolCall]] = {

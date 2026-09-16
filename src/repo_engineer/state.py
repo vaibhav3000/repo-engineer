@@ -79,6 +79,7 @@ class AgentState:
     files_changed: list[str] = field(default_factory=list)
     steps_used: int = 0
     replans: int = 0
+    planner_errors: int = 0
     verified: bool = False
     started_at: float = field(default_factory=time.time)
 

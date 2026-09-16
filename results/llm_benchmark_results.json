@@ -1,0 +1,59 @@
+{
+  "mode": "llm",
+  "provider": {
+    "model": "gemini-2.5-flash",
+    "temperature": 0.0,
+    "key_source": "environment variable (value never recorded)"
+  },
+  "date": "2026-09-17 00:03",
+  "tasks": [
+    {
+      "task_id": "task_01_fix_off_by_one",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 5,
+      "replans": 0,
+      "planner_errors": 0,
+      "files_changed": [
+        "shop/cart.py"
+      ],
+      "errors": [],
+      "llm_calls": 4,
+      "llm_prompt_tokens": 2076,
+      "llm_completion_tokens": 119,
+      "llm_model": "gemini-2.5-flash",
+      "wall_time_s": 10.0,
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_03_add_missing_test",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 4,
+      "replans": 0,
+      "planner_errors": 0,
+      "files_changed": [
+        "tests/test_slug.py"
+      ],
+      "errors": [
+        "planner error: ProviderError: HTTP 429: [{\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"You exceeded your current quota, please check your plan and billing details. For more information on this error",
+        "planner error: ProviderError: HTTP 429: [{\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"You exceeded your current quota, please check your plan and billing details. For more information on this error"
+      ],
+      "llm_calls": 7,
+      "llm_prompt_tokens": 3887,
+      "llm_completion_tokens": 518,
+      "llm_model": "gemini-2.5-flash",
+      "wall_time_s": 49.6,
+      "failed_tool_calls": 0
+    }
+  ],
+  "summary": {
+    "n_tasks": 2,
+    "n_success": 2,
+    "success_rate": 1.0,
+    "total_llm_calls": 11,
+    "total_prompt_tokens": 5963,
+    "total_completion_tokens": 637,
+    "total_failed_tool_calls": 0
+  }
+}

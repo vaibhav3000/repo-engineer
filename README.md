@@ -32,10 +32,12 @@ addresses all three explicitly:
 | Path escapes / prompt injection via file content | workspace jail on every path argument; tool outputs are data, never instructions |
 | Infinite loops | step budget + replan budget -> FAILED |
 
-## Key results (measured, reproducible)
+## Two benchmark modes, recorded separately
 
-`python scripts/run_benchmark.py` runs four software-engineering tasks in
-isolated workspace copies with the deterministic planner:
+**Deterministic mode (reproducible).** `python scripts/run_benchmark.py`
+runs four software-engineering tasks in isolated workspace copies with the
+ScriptedPlanner. No network, no API keys, byte-stable. It measures the runtime:
+validation, jail, permissions, state machine, verification.
 
 | task | success | steps | replans | failed tool calls |
 |---|---|---|---|---|
@@ -44,8 +46,25 @@ isolated workspace copies with the deterministic planner:
 | add missing test | yes | 5 | 0 | 0 |
 | constrained refactor | yes | 7 | 0 | 0 |
 
-Success rate 4/4. The committed `results/benchmark_results.json` is the output
-of a real run; the traces in `runs/` show every tool call and observation.
+Committed in `results/benchmark_results.json`.
+
+**Real LLM mode.** `python scripts/run_llm_benchmark.py` runs selected tasks
+with `LLMPlanner` (gemini-2.5-flash via an OpenAI-compatible endpoint,
+temperature 0). The model sees the task, the tool schemas and the truncated
+history, and answers with a JSON tool call; the runtime validates, jails and
+permission-checks every proposal and still requires a green test suite to
+declare COMPLETE. Measured run (2026-09-16), committed in
+`results/llm_benchmark_results.json`:
+
+| task | success | steps | LLM calls | failed tool calls | notes |
+|---|---|---|---|---|---|
+| fix off-by-one loop | yes | 5 | 4 | 0 | edited only shop/cart.py |
+| add missing test | yes | 4 | 7 | 0 | wrote its own test file; 2 provider 429s absorbed by the runtime |
+
+The two 429 rate-limit errors mid-run are part of the record: the state
+machine treated them as recoverable planner errors and still completed with
+verified tests. API keys come from environment variables and are never
+written to traces or results.
 
 ## Architecture
 
@@ -87,10 +106,12 @@ Components (src/repo_engineer/):
 
 ## Honest limitations
 
-- The scripted planner solves the fixed benchmark tasks from recipes; it is a
-  harness for the runtime, not a demonstration of reasoning. Real capability
-  requires wiring `LLMPlanner` to a model backend (integration point documented,
-  deliberately not included so committed results stay reproducible and free).
+- Deterministic vs LLM modes measure different things and are stored in
+  different files: `benchmark_results.json` (scripted, reproducible) vs
+  `llm_benchmark_results.json` (live model, varies with provider and model
+  version). The deterministic mode remains the regression harness; the LLM
+  mode demonstrates end-to-end capability. Small-n caveat: the LLM benchmark
+  covers two tasks, once each - it is a demonstration, not a leaderboard.
 - The path jail is per-path-argument; the test suite exercises escape attempts
   (`..`, absolute paths, drive letters) but a production system would sandbox
   at the OS level too.
