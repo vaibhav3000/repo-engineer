@@ -150,6 +150,12 @@ Components (src/repo_engineer/):
 - `benchmark/harness.py` + `benchmark/tasks/` - four self-contained mini-repos
   (bug fix, failing test, missing test, refactor) with hidden test suites.
 
+## Technical Report
+
+A concise IEEE-style technical paper documenting this system is available at
+[reports/Autonomous_Repository_Engineer.pdf](reports/Autonomous_Repository_Engineer.pdf),
+with LaTeX source included under `reports/`.
+
 ## Honest limitations
 
 - Deterministic vs LLM modes measure different things and are stored in
