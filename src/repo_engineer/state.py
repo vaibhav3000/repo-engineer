@@ -22,18 +22,17 @@ class State(str, Enum):
     REPLAN = "REPLAN"          # tests failed or an action was rejected
     VERIFY = "VERIFY"          # running the verification suite
     COMPLETE = "COMPLETE"
-    HUMAN_REVIEW = "HUMAN_REVIEW"  # policy requested approval that is pending
     FAILED = "FAILED"          # budget exhausted or unrecoverable error
 
 
 # Legal transitions. Anything else is a programming error, so the machine
-# raises instead of drifting silently.
+# raises instead of drifting silently. Human approval is handled synchronously
+# at the registry seam (Policy.ASK + ask_callback), not as a parked state.
 TRANSITIONS: dict[State, set[State]] = {
     State.INIT: {State.ANALYZE_REPO, State.FAILED},
     State.ANALYZE_REPO: {State.PLAN, State.FAILED},
     State.PLAN: {State.ACT, State.VERIFY, State.FAILED},
-    State.ACT: {State.OBSERVE, State.HUMAN_REVIEW, State.FAILED},
-    State.HUMAN_REVIEW: {State.ACT, State.FAILED},
+    State.ACT: {State.OBSERVE, State.FAILED},
     State.OBSERVE: {State.PLAN, State.REPLAN, State.VERIFY},
     State.REPLAN: {State.PLAN, State.FAILED},
     State.VERIFY: {State.COMPLETE, State.REPLAN, State.FAILED},

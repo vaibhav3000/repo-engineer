@@ -1,5 +1,7 @@
 # repo-engineer: Autonomous Repository Engineer
 
+[![CI](https://github.com/vaibhav3000/repo-engineer/actions/workflows/ci.yml/badge.svg)](https://github.com/vaibhav3000/repo-engineer/actions/workflows/ci.yml)
+
 A verified tool-using coding agent. Given a small repository and an engineering
 task, it inspects the repo, plans, edits files through validated tools, runs
 the test suite, observes failures, replans, and only declares success when the
@@ -75,8 +77,6 @@ stateDiagram-v2
     ANALYZE_REPO --> PLAN
     PLAN --> ACT
     ACT --> OBSERVE
-    ACT --> HUMAN_REVIEW
-    HUMAN_REVIEW --> ACT
     OBSERVE --> PLAN
     OBSERVE --> VERIFY
     OBSERVE --> REPLAN
@@ -127,7 +127,7 @@ VERIFY, and VERIFY re-runs the test suite through the allowlisted tool.
 flowchart LR
     T["4 tasks: bug fix,<br/>failing test, missing test,<br/>refactor"] --> C["fresh workspace copy<br/>per task (isolation)"]
     C --> R["AgentRuntime:<br/>ScriptedPlanner or live Gemini"]
-    R --> V["VERIFY: hidden test suite"]
+    R --> V["VERIFY: task test suite"]
     V --> RES["results/benchmark_results.json<br/>(deterministic: 4/4)<br/>results/llm_benchmark_results.json<br/>(live: 2/2)"]
     style V fill:#d4f0d4
 ```
@@ -144,11 +144,11 @@ Components (src/repo_engineer/):
   classes (READ_ONLY / MUTATING / EXECUTION) with AUTO / ASK / DENY policies,
   workspace path jail, test-command allowlist, subprocess timeouts.
 - `planner.py` - `Planner` ABC; `ScriptedPlanner` (deterministic recipes, used
-  by the benchmark) and `LLMPlanner` (documented stub that requires explicit
+  by the benchmark) and `LLMPlanner` (live-LLM planner, requires explicit
   environment configuration).
 - `agent.py` - `AgentRuntime`: the loop described above, plus JSON trace export.
 - `benchmark/harness.py` + `benchmark/tasks/` - four self-contained mini-repos
-  (bug fix, failing test, missing test, refactor) with hidden test suites.
+  (bug fix, failing test, missing test, refactor) with their test suites.
 
 ## Technical Report
 
@@ -174,7 +174,7 @@ with LaTeX source included under `reports/`.
 
 ```bash
 python -m pip install -e ".[dev]"
-python -m pytest tests/ -q           # 16 tests
+python -m pytest tests/ -q           # 21 tests
 python scripts/run_benchmark.py      # 4/4 tasks, writes results/benchmark_results.json
 ```
 
@@ -186,7 +186,7 @@ pytest only).
 ```
 src/repo_engineer/       state.py tools.py planner.py agent.py benchmark/
 benchmark/tasks/         four self-contained task repos (task.json + code + tests)
-tests/                   16 tests: state machine, schemas, jail, policy, harness
+tests/                   21 tests: state machine, schemas, jail, policy, harness
 results/                 committed benchmark output
 docs/                    interview_guide.md, architecture.md
 ```

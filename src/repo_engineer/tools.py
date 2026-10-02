@@ -15,7 +15,7 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable
 
 from .state import Observation, ToolCall
@@ -105,6 +105,20 @@ class ToolRegistry:
                 f"path escape rejected: {raw!r} resolves outside the workspace"
             )
         return resolved
+
+    def jailed_glob(self, pattern: str) -> None:
+        """Reject glob patterns that could scope the search outside the
+        workspace: absolute paths, drive letters, .. components, or Windows
+        backslash separators. Checked under both path dialects so a pattern
+        cannot slip through on the 'other' platform's semantics."""
+        if not isinstance(pattern, str) or not pattern:
+            raise PermissionError("glob must be a non-empty string")
+        win = PureWindowsPath(pattern)
+        posix = PurePosixPath(pattern)
+        if win.is_absolute() or posix.is_absolute() or ".." in win.parts or ".." in posix.parts:
+            raise PermissionError(
+                f"path escape rejected: glob {pattern!r} leaves the workspace"
+            )
 
     # ------------------------------------------------------------- registry
 
@@ -204,6 +218,20 @@ class ToolRegistry:
         except FileNotFoundError as exc:
             return Observation(tool=call.tool, ok=False, error=str(exc),
                                latency_ms=(_time.perf_counter() - started) * 1000)
+        except subprocess.TimeoutExpired as exc:
+            # Execution-class failure with a real duration: an Observation,
+            # never a crash of the runtime loop.
+            return Observation(
+                tool=call.tool, ok=False,
+                error=f"command timed out after {exc.timeout:.0f}s",
+                latency_ms=(_time.perf_counter() - started) * 1000,
+            )
+        except OSError as exc:
+            # Remaining filesystem failures (IsADirectoryError,
+            # NotADirectoryError, WinError 183, disk-full, ...). PermissionError
+            # and FileNotFoundError are caught above.
+            return Observation(tool=call.tool, ok=False, error=str(exc),
+                               latency_ms=(_time.perf_counter() - started) * 1000)
         except (ValueError, RuntimeError) as exc:
             return Observation(tool=call.tool, ok=False, error=str(exc),
                                latency_ms=(_time.perf_counter() - started) * 1000)
@@ -236,6 +264,7 @@ class ToolRegistry:
     def _search(self, pattern: str, glob: str = "**/*.py") -> str:
         import re
 
+        self.jailed_glob(glob)
         try:
             regex = re.compile(pattern, re.IGNORECASE)
         except re.error as exc:
@@ -248,7 +277,13 @@ class ToolRegistry:
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
-            rel = path.relative_to(self.workspace)
+            try:
+                rel = path.relative_to(self.workspace)
+            except ValueError as exc:
+                # Belt and braces: jailed_glob should make this unreachable.
+                raise PermissionError(
+                    f"path escape rejected: {str(path)!r} leaves the workspace"
+                ) from exc
             for line_no, line in enumerate(text.splitlines(), 1):
                 if regex.search(line):
                     matches.append(f"{rel}:{line_no}:{line.strip()[:200]}")

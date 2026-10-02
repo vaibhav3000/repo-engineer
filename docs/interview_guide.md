@@ -78,7 +78,7 @@ The benchmark measures the runtime: schema validation, permissions, jail, state
 transitions, verification and trace capture. Using deterministic recipes keeps
 results reproducible at zero API cost. The honest claim is "the harness and
 runtime work and are verified", not "an LLM solved these tasks". The
-`LLMPlanner` stub marks the integration point.
+`LLMPlanner` marks the live-LLM integration point.
 
 ## Design details
 

@@ -86,8 +86,10 @@ class AgentRuntime:
                     if changed and changed not in state.files_changed:
                         state.files_changed.append(changed)
 
-                # HUMAN_REVIEW hook: a MUTATING/EXECUTION call under ASK policy that
-                # is denied transitions through review before failing the step.
+                # A MUTATING/EXECUTION call under ASK policy that is denied
+                # comes back as a rejected Observation from the registry
+                # (synchronous approval via ask_callback), recorded like any
+                # other rejection.
                 observation = self.registry.execute(action)
                 machine.transition(State.OBSERVE)
                 state.observations.append(_observation_dict(observation))

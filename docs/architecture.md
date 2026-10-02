@@ -14,8 +14,6 @@ stateDiagram-v2
     ANALYZE_REPO --> PLAN
     PLAN --> ACT
     ACT --> OBSERVE
-    ACT --> HUMAN_REVIEW
-    HUMAN_REVIEW --> ACT
     OBSERVE --> PLAN
     OBSERVE --> VERIFY
     OBSERVE --> REPLAN
