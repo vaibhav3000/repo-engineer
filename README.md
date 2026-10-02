@@ -174,7 +174,7 @@ with LaTeX source included under `reports/`.
 
 ```bash
 python -m pip install -e ".[dev]"
-python -m pytest tests/ -q           # 21 tests
+python -m pytest tests/ -q           # 24 tests
 python scripts/run_benchmark.py      # 4/4 tasks, writes results/benchmark_results.json
 ```
 
@@ -186,7 +186,7 @@ pytest only).
 ```
 src/repo_engineer/       state.py tools.py planner.py agent.py benchmark/
 benchmark/tasks/         four self-contained task repos (task.json + code + tests)
-tests/                   21 tests: state machine, schemas, jail, policy, harness
+tests/                   24 tests: state machine, schemas, jail, policy, harness
 results/                 committed benchmark output
 docs/                    interview_guide.md, architecture.md
 ```

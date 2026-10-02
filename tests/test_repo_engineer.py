@@ -27,9 +27,8 @@ def fresh_registry(tmp_path: Path) -> ToolRegistry:
 
 
 def test_illegal_transition_raises():
-    state = StateMachine(None.__class__ and _mk_state())
-    import pytest
     from repo_engineer.state import AgentState
+
     sm = StateMachine(AgentState(task_id="t", task_description="", workspace="."))
     sm.transition(State.ANALYZE_REPO)
     with pytest.raises(RuntimeError):
@@ -214,3 +213,53 @@ def test_budget_exhaustion_fails(tmp_path):
     runtime = AgentRuntime(ToolRegistry(workspace), ScriptedPlanner(), max_steps=2)
     state = runtime.run_task(task)
     assert state.state is State.FAILED
+
+
+# ---------------------------------------------------------------- provider + runtime resilience
+
+
+def test_chat_json_parses_fenced_reply(monkeypatch):
+    from repo_engineer.llm_provider import LLMResponse, OpenAICompatProvider
+
+    provider = OpenAICompatProvider(base_url="http://localhost:9", api_key_env="UNUSED",
+                                    model="test-model")
+    resp = LLMResponse(content='```json\n{"tool": "search", "args": {}}\n```',
+                       prompt_tokens=1, completion_tokens=1, model="test-model",
+                       finish_reason="stop")
+    monkeypatch.setattr(provider, "chat", lambda system, user, retries=2: resp)
+    data, out = provider.chat_json("system", "user")
+    assert data == {"tool": "search", "args": {}}
+    assert out is resp
+
+
+def test_chat_json_raises_on_non_json(monkeypatch):
+    import pytest as _pytest
+
+    from repo_engineer.llm_provider import LLMResponse, OpenAICompatProvider, ProviderError
+
+    provider = OpenAICompatProvider(base_url="http://localhost:9", api_key_env="UNUSED",
+                                    model="test-model")
+    resp = LLMResponse(content="I cannot comply, good sir.", prompt_tokens=1,
+                       completion_tokens=1, model="test-model", finish_reason="stop")
+    monkeypatch.setattr(provider, "chat", lambda system, user, retries=2: resp)
+    with _pytest.raises(ProviderError):
+        provider.chat_json("system", "user")
+
+
+def test_runtime_continues_after_ask_denial(tmp_path):
+    """A denied ASK-policy call must come back as a rejected Observation and
+    leave the runtime free to continue to VERIFY."""
+    from repo_engineer.planner import RecordedPlanner
+
+    reg = fresh_registry(tmp_path)
+    reg.policy[Permission.MUTATING] = Policy.ASK  # no ask_callback -> denied
+    planner = RecordedPlanner([
+        ToolCall("apply_edit", {"path": "app.py", "old_text": "VALUE = 1", "new_text": "VALUE = 2"}),
+        None,
+    ])
+    runtime = AgentRuntime(reg, planner)
+    task = json.loads((TASKS / "task_01_fix_off_by_one" / "task.json").read_text(encoding="utf-8"))
+    state = runtime.run_task(task, trace_path=tmp_path / "trace.json")
+    # observation 0 is the analyze list_tree; observation 1 is the denied edit
+    assert state.observations[1]["rejected"] is True
+    assert state.state is State.COMPLETE and state.verified

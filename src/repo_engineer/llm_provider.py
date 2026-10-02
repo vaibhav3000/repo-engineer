@@ -1,5 +1,9 @@
 """Minimal OpenAI-compatible chat client (stdlib only).
 
+Deliberately near-identical to aire's src/aire/llm/provider.py: both projects
+stay zero-dependency standalone repos, so the small client is duplicated and
+kept in sync by hand rather than extracted into a shared package.
+
 One provider class covers Gemini's OpenAI-compatible endpoint and any other
 OpenAI-style API. The API key is read from an environment variable at call
 time; it is never written to disk, logs or results by this module.
