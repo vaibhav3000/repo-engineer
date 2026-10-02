@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Run Explorer - repo-engineer</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#1a1d21; --muted:#5c6470; --line:#e4e7eb; --panel:#f6f7f9;
+    --good:#0a7d33; --bad:#b3261e; --warn:#9a6b00; --accent:#1f4e79;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:16px/1.55 ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  a{color:var(--accent)}
+  code,.mono{font-family:ui-monospace,"Cascadia Code",Consolas,Menlo,monospace;font-size:.92em}
+  header{border-bottom:1px solid var(--line);background:var(--panel)}
+  .bar{max-width:1080px;margin:0 auto;padding:14px 20px;display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+  .bar .name{font-weight:700}
+  .bar nav{margin-left:auto;display:flex;gap:18px;flex-wrap:wrap}
+  .bar nav a{text-decoration:none;color:var(--ink);border-bottom:2px solid transparent;padding-bottom:2px}
+  .bar nav a:hover{border-bottom-color:var(--accent)}
+  main{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  .hero h1{font-size:1.7rem;margin:.2em 0 .3em}
+  .hero p.lead{color:var(--muted);max-width:54rem;margin:.2em 0 1em}
+  .chips{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 8px}
+  .chip{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 12px;font-size:.92rem}
+  .callout{border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--panel);border-radius:8px;padding:12px 16px;margin:14px 0}
+  section{margin-top:44px}
+  h2{font-size:1.25rem;margin:0 0 4px;padding-bottom:6px;border-bottom:2px solid var(--accent);display:inline-block}
+  .sub{color:var(--muted);margin:6px 0 16px;max-width:56rem}
+  .tasks{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+  .tasks button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-size:.9rem;cursor:pointer}
+  .tasks button[aria-pressed="true"]{border-color:var(--accent);background:var(--panel);font-weight:600}
+  .lane{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:18px 0 6px}
+  .state{border:1px solid var(--line);border-radius:6px;padding:5px 9px;font-size:.8rem;color:var(--muted);background:#fff}
+  .state.cur{border-color:var(--accent);color:var(--accent);font-weight:700;box-shadow:0 0 0 1px var(--accent) inset}
+  .state.done{color:var(--good);border-color:var(--good)}
+  .arrow{color:var(--muted);font-size:.8rem}
+  .controls{display:flex;gap:8px;margin:14px 0;align-items:center;flex-wrap:wrap}
+  .controls button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:7px 14px;font:inherit;cursor:pointer}
+  .controls button:hover{border-color:var(--accent)}
+  .progress{color:var(--muted);font-size:.85rem;font-variant-numeric:tabular-nums}
+  .stepgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:720px){.stepgrid{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fff}
+  .card h3{margin:0 0 6px;font-size:.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .gates{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+  .gate{border:1px solid var(--good);color:var(--good);border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:600}
+  .gate.bad{border-color:var(--bad);color:var(--bad)}
+  pre{white-space:pre-wrap;background:var(--panel);padding:8px 10px;border-radius:6px;margin:6px 0 0;font-size:.85rem;max-height:220px;overflow:auto}
+  table{border-collapse:collapse;width:100%;font-size:.9rem}
+  th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left}
+  th{background:var(--panel)}
+  .yes{color:var(--good);font-weight:700}.no{color:var(--bad);font-weight:700}
+  .attacks{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+  details.attack{border:1px solid var(--line);border-radius:8px;background:#fff}
+  details.attack summary{cursor:pointer;padding:10px 12px;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center}
+  details.attack summary::-webkit-details-marker{display:none}
+  details.attack summary:hover{background:var(--panel)}
+  .blocked{color:var(--bad);font-weight:700;font-size:.8rem;white-space:nowrap}
+  .attackbody{padding:0 12px 12px;border-top:1px solid var(--line);font-size:.88rem}
+  .gatepath{color:var(--muted);font-size:.8rem;margin:8px 0 4px}
+  footer{border-top:1px solid var(--line);margin-top:56px;padding:18px 0 8px;color:var(--muted);font-size:.85rem}
+  :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <span class="name">repo-engineer &middot; Autonomous Repository Engineer</span>
+    <nav aria-label="project links">
+      <a href="https://github.com/vaibhav3000/repo-engineer">GitHub</a>
+      <a href="https://github.com/vaibhav3000/repo-engineer/blob/main/reports/Autonomous_Repository_Engineer.pdf">Technical report (PDF)</a>
+      <a href="https://github.com/vaibhav3000/repo-engineer/tree/main/results">Committed results</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <h1>The planner proposes. The runtime disposes.</h1>
+    <p class="lead">A verified tool-using coding agent: a deterministic state machine validates every tool call
+      against a schema, checks permission policies, jails every path inside the workspace, and trusts nothing except
+      a green test suite. Below: real executions from the committed deterministic benchmark, replayed step by step,
+      and the jail's actual rejection messages.</p>
+    <div class="chips">
+      <span class="chip">Deterministic benchmark: <b>4/4</b> tasks, <b>zero failed tool calls</b></span>
+      <span class="chip">Live Gemini planner: <b>2/2</b> on the same runtime (2 rate-limit errors absorbed)</span>
+      <span class="chip">Completion requires <b>exit=0</b> test evidence - never a model's claim</span>
+    </div>
+  </div>
+
+  <section aria-labelledby="replay-h">
+    <h2 id="replay-h">Replay a verified run</h2>
+    <p class="sub">These are committed execution traces from the deterministic benchmark (ScriptedPlanner; no
+      network, byte-stable). Each step shows the proposed tool call, the gates it passed, and the runtime's
+      observation. Watch task&nbsp;2: the first test run fails, the runtime replans, and completion only happens
+      after a green VERIFY.</p>
+    <div class="tasks" id="task-btns" role="group" aria-label="choose task"></div>
+    <div class="lane" id="lane" aria-label="state machine"></div>
+    <div class="controls">
+      <button id="btn-reset" type="button">Reset</button>
+      <button id="btn-step" type="button">Next step</button>
+      <button id="btn-play" type="button">Play</button>
+      <span class="progress" id="progress"></span>
+    </div>
+    <div class="stepgrid">
+      <div class="card"><h3>Proposed action &amp; gates</h3><div id="action-view"></div></div>
+      <div class="card"><h3>Observation (runtime record)</h3><div id="obs-view"></div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Files changed (proposed paths)</h3><div id="files-view" class="mono" style="font-size:.9rem"></div></div>
+  </section>
+
+  <section aria-labelledby="bench-h">
+    <h2 id="bench-h">Benchmark record</h2>
+    <div class="stepgrid">
+      <div class="card"><h3>Deterministic (reproducible)</h3><div id="bench-det"></div></div>
+      <div class="card"><h3>Live LLM planner (recorded 2026-09-16)</h3><div id="bench-llm"></div></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="jail-h">
+    <h2 id="jail-h">Attack the jail (real rejections)</h2>
+    <p class="sub">Each card replays a hostile tool call against the real <span class="mono">ToolRegistry</span>; the
+      rejection text is captured output, not a mock. Paths are jailed, globs are dialect-checked, commands are
+      allowlisted, and malformed calls never execute.</p>
+    <div class="attacks" id="attacks"></div>
+  </section>
+
+  <footer>
+    <div>Replay-only demo: no planner, no LLM, no shell - the traces and rejection messages come from
+      <span class="mono">results/</span> in
+      <a href="https://github.com/vaibhav3000/repo-engineer">github.com/vaibhav3000/repo-engineer</a>
+      (regenerate with <span class="mono">python scripts/run_benchmark.py</span> and
+      <span class="mono">python demo-site/build.py</span>).
+      The deterministic mode remains the regression harness; the recorded LLM run demonstrates end-to-end capability
+      and covers two of the four tasks, once each - a demonstration, not a leaderboard.</div>
+  </footer>
+</main>
+
+<script src="data.js"></script>
+<script>
+"use strict";
+const DATA = window.DATA;
+const TASK_LABELS = {
+  task_01_fix_off_by_one: "Fix off-by-one loop",
+  task_02_failing_test: "Repair failing test (with replan)",
+  task_03_add_missing_test: "Add missing test",
+  task_04_constrained_refactor: "Constrained refactor",
+};
+const STATES_MAIN = ["INIT","ANALYZE_REPO","PLAN","ACT","OBSERVE","VERIFY","COMPLETE"];
+const esc = s => { const d = document.createElement("span"); d.textContent = s == null ? "" : String(s); return d.innerHTML; };
+
+/* ---------- replay ---------- */
+let taskId = "task_02_failing_test";
+let cursor = 0;          // 0..N steps; N+1 = VERIFY; N+2 = COMPLETE
+let timer = null;
+
+function steps(taskId){
+  const t = DATA.traces[taskId];
+  const list = [{kind:"analyze"}];
+  t.actions.forEach((a, i) => {
+    const obs = t.observations[i];
+    list.push({kind:"action", action:a, obs, testPassed: null, replan: false});
+  });
+  const verify = (t.test_results || []).find(r => r.verify);
+  list.push({kind:"verify", passed: verify ? verify.passed : null});
+  list.push({kind:"complete", passed: t.state === "COMPLETE"});
+  return list;
+}
+function stateFor(step){
+  if (step.kind === "analyze") return "ANALYZE_REPO";
+  if (step.kind === "action"){
+    const isTest = step.action.tool === "run_tests";
+    if (isTest && step.obs && step.obs.ok && String(step.obs.output_excerpt).startsWith("exit=0")) return "VERIFY";
+    if (isTest) return "REPLAN";
+    return "OBSERVE";
+  }
+  return step.kind === "verify" ? "VERIFY" : "COMPLETE";
+}
+function stateSeq(){
+  // states shown on the lane as "done" when the cursor has passed them
+  const seq = ["INIT","ANALYZE_REPO"];
+  steps(taskId).forEach((s, i) => {
+    if (i === 0) return;
+    const st = stateFor(s);
+    if (seq[seq.length-1] !== st) seq.push(st);
+    if (st === "VERIFY" && s.kind === "action") seq.push("PLAN"); // possible replan path
+  });
+  return seq;
+}
+
+function renderTasks(){
+  const box = document.getElementById("task-btns");
+  box.innerHTML = "";
+  Object.keys(DATA.traces).forEach(id => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("aria-pressed", id === taskId ? "true" : "false");
+    b.textContent = TASK_LABELS[id] || id;
+    b.addEventListener("click", () => { taskId = id; cursor = 0; stopPlay(); renderTasks(); renderReplay(); });
+    box.appendChild(b);
+  });
+}
+
+function renderLane(){
+  const lane = document.getElementById("lane");
+  lane.innerHTML = "";
+  const cur = cursor < steps(taskId).length ? stateFor(steps(taskId)[cursor]) : "COMPLETE";
+  const visited = new Set();
+  steps(taskId).slice(0, cursor + 1).forEach(s => visited.add(stateFor(s)));
+  if (cursor >= steps(taskId).length - 1) visited.add("COMPLETE");
+  const shown = ["INIT","ANALYZE_REPO","PLAN","ACT","OBSERVE","VERIFY","COMPLETE"];
+  shown.forEach((s, i) => {
+    if (i) lane.insertAdjacentHTML("beforeend", `<span class="arrow">&rarr;</span>`);
+    const cls = s === cur ? "state cur" : visited.has(s) ? "state done" : "state";
+    lane.insertAdjacentHTML("beforeend", `<span class="${cls}">${s}</span>`);
+  });
+  if (DATA.traces[taskId].replans > 0){
+    lane.insertAdjacentHTML("beforeend",
+      `<span class="arrow">&middot;</span><span class="${visited.has("REPLAN")?"state done":"state"}">REPLAN</span>`);
+  }
+}
+
+function renderStep(){
+  const seq = steps(taskId);
+  const t = DATA.traces[taskId];
+  const actionView = document.getElementById("action-view");
+  const obsView = document.getElementById("obs-view");
+  const filesView = document.getElementById("files-view");
+  document.getElementById("progress").textContent =
+    `step ${Math.min(cursor, seq.length - 1)} of ${seq.length - 1} - final state: ${t.state} (${t.steps_used} steps, ${t.replans} replan${t.replans === 1 ? "" : "s"})`;
+
+  if (cursor >= seq.length){ stopPlay(); }
+  const step = seq[Math.min(cursor, seq.length - 1)];
+
+  if (step.kind === "analyze"){
+    actionView.innerHTML = `<p style="margin:4px 0"><b>ANALYZE_REPO</b> - the runtime inspects the workspace itself.</p>
+      <div class="gates"><span class="gate">read-only tool</span></div>
+      <pre>list_tree {}</pre>`;
+    obsView.innerHTML = `<p style="margin:4px 0">Workspace listed; the loop enters PLAN.</p>`;
+  } else if (step.kind === "action"){
+    const a = step.action, o = step.obs;
+    const isTest = a.tool === "run_tests";
+    const gates = o.rejected
+      ? `<span class="gate bad">rejected at ${gateName(o)}</span>`
+      : `<span class="gate">schema valid</span><span class="gate">policy: ${a.tool === "run_tests" ? "execution/AUTO" : a.tool === "apply_edit" || a.tool === "write_file" ? "mutating/AUTO" : "read-only/AUTO"}</span><span class="gate">jail ok</span>`;
+    actionView.innerHTML = `
+      <p style="margin:4px 0" class="mono"><b>${esc(a.tool)}</b> ${esc(JSON.stringify(a.args))}</p>
+      <div class="gates">${gates}</div>
+      ${isTest ? '<p class="sub" style="margin:2px 0 0;font-size:.8rem">run_tests is allowlisted (python -m pytest / unittest), runs without a shell, with a timeout.</p>' : ""}`;
+    obsView.innerHTML = o.error
+      ? `<p class="no" style="margin:4px 0">ok=false</p><pre>${esc(o.error)}</pre>`
+      : `<p class="${o.ok ? "yes" : "no"}" style="margin:4px 0">ok=${o.ok}</p><pre>${esc(o.output_excerpt)}</pre>`;
+  } else if (step.kind === "verify"){
+    actionView.innerHTML = `<p style="margin:4px 0"><b>VERIFY</b> - the runtime re-runs the suite itself; the planner cannot claim completion.</p>
+      <div class="gates"><span class="gate">allowlisted command</span><span class="gate">exit code required</span></div>`;
+    obsView.innerHTML = step.passed
+      ? `<p class="yes" style="margin:4px 0">green test evidence recorded</p><pre>exit=0</pre>`
+      : `<p class="no" style="margin:4px 0">tests failed</p>`;
+  } else {
+    actionView.innerHTML = `<p style="margin:4px 0"><b>COMPLETE</b> - reachable only from VERIFY with exit=0.</p>`;
+    obsView.innerHTML = `<p class="${step.passed ? "yes" : "no"}" style="margin:4px 0">final state: ${esc(t.state)}${t.errors && t.errors.length ? " - errors: " + esc(t.errors.join("; ")) : ""}</p>`;
+  }
+  filesView.textContent = t.files_changed.join(", ") || "(none)";
+  renderLane();
+}
+
+function gateName(o){
+  const e = o.error || "";
+  if (e.includes("unknown tool")) return "tool registry";
+  if (e.includes("must be") || e.includes("missing required") || e.includes("unknown arguments")) return "schema validation";
+  if (e.includes("allowlist")) return "command allowlist";
+  if (e.includes("policy")) return "permission policy";
+  if (e.includes("path escape") || e.includes("glob")) return "workspace jail";
+  return "validation";
+}
+
+function renderReplay(){ renderStep(); }
+
+function stopPlay(){ if (timer){ clearInterval(timer); timer = null; document.getElementById("btn-play").textContent = "Play"; } }
+
+document.getElementById("btn-reset").addEventListener("click", () => { cursor = 0; stopPlay(); renderReplay(); });
+document.getElementById("btn-step").addEventListener("click", () => {
+  const n = steps(taskId).length;
+  cursor = Math.min(cursor + 1, n - 1);
+  renderReplay();
+});
+document.getElementById("btn-play").addEventListener("click", () => {
+  if (timer){ stopPlay(); return; }
+  document.getElementById("btn-play").textContent = "Pause";
+  timer = setInterval(() => {
+    const n = steps(taskId).length;
+    if (cursor >= n - 1){ stopPlay(); return; }
+    cursor += 1; renderReplay();
+  }, 900);
+});
+
+/* ---------- benchmark tables ---------- */
+function benchTable(results){
+  const rows = results.tasks.map(t => `
+    <tr><td>${esc(TASK_LABELS[t.task_id] || t.task_id)}</td>
+    <td class="${t.success ? "yes" : "no"}">${t.success ? "yes" : "no"}</td>
+    <td class="num">${t.steps}</td><td class="num">${t.replans}</td>
+    <td class="num">${t.failed_tool_calls}</td></tr>`).join("");
+  const s = results.summary;
+  return `<table><thead><tr><th>task</th><th>success</th><th class="num">steps</th>
+    <th class="num">replans</th><th class="num">failed calls</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="sub" style="margin:8px 0 0;font-size:.85rem">${s.n_success}/${s.n_tasks} tasks - ${s.total_failed_tool_calls} failed tool calls${results.llm_model ? "" : ""}</p>`;
+}
+document.getElementById("bench-det").innerHTML = benchTable(DATA.benchmark);
+const llmRows = DATA.llm_benchmark.tasks.map(t => `
+  <tr><td>${esc(TASK_LABELS[t.task_id] || t.task_id)}</td>
+  <td class="${t.success ? "yes" : "no"}">${t.success ? "yes" : "no"}</td>
+  <td class="num">${t.llm_calls}</td><td class="num">${t.failed_tool_calls}</td>
+  <td>${t.errors && t.errors.length ? '<span class="no">2 x HTTP 429 absorbed</span>' : "clean"}</td></tr>`).join("");
+document.getElementById("bench-llm").innerHTML = `
+  <table><thead><tr><th>task</th><th>success</th><th class="num">LLM calls</th><th class="num">failed calls</th><th>notes</th></tr></thead>
+  <tbody>${llmRows}</tbody></table>
+  <p class="sub" style="margin:8px 0 0;font-size:.85rem">gemini-2.5-flash, temperature 0, same runtime; small-n by design.</p>`;
+
+/* ---------- attacks ---------- */
+const GATE_TITLE = {
+  "workspace jail": "Workspace path jail",
+  "command allowlist": "Command allowlist",
+  "schema validation": "Tool schema validation",
+  "tool registry": "Tool registry",
+};
+function renderAttacks(){
+  const box = document.getElementById("attacks");
+  DATA.attacks.forEach(a => {
+    const gate = a.error.includes("allowlist") ? "command allowlist"
+      : a.error.includes("unknown tool") ? "tool registry"
+      : a.error.includes("must be") || a.error.includes("unknown arguments") ? "schema validation"
+      : "workspace jail";
+    const d = document.createElement("details");
+    d.className = "attack";
+    d.innerHTML = `
+      <summary><span class="mono">${esc(a.tool)}(${esc(JSON.stringify(a.args)).slice(1, -1)})</span>
+      <span class="blocked">BLOCKED</span></summary>
+      <div class="attackbody">
+        <p class="gatepath">Gate: <b>${esc(GATE_TITLE[gate])}</b> - rejected before execution; no file read, no command run.</p>
+        <pre>${esc(a.error)}</pre>
+      </div>`;
+    box.appendChild(d);
+  });
+}
+
+renderTasks();
+renderReplay();
+renderAttacks();
+</script>
+</body>
+</html>
