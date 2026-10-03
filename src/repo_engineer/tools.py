@@ -12,6 +12,7 @@ Design rules:
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
@@ -95,6 +96,13 @@ class ToolRegistry:
         """Resolve raw inside the workspace; raise PermissionError on escape."""
         if not isinstance(raw, str) or not raw:
             raise PermissionError("path must be a non-empty string")
+        # A Windows-absolute path (drive letter) cannot be resolved faithfully
+        # on a POSIX host, where it would silently degrade to a workspace-
+        # relative name. Reject it rather than guess platform semantics.
+        if PureWindowsPath(raw).is_absolute() and os.name != "nt":
+            raise PermissionError(
+                f"path escape rejected: {raw!r} is a Windows absolute path"
+            )
         candidate = Path(raw)
         if candidate.is_absolute():
             resolved = candidate.resolve()
