@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Run Explorer - repo-engineer</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#1a1d21; --muted:#5c6470; --line:#e4e7eb; --panel:#f6f7f9;
+    --good:#0a7d33; --bad:#b3261e; --warn:#9a6b00; --accent:#1f4e79; --accent-soft:#e2ebf4;
+  }
+  *{box-sizing:border-box}
+  html,body{overflow-x:clip}
+  body{margin:0;font:16px/1.55 ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+  a{color:var(--accent)}
+  code,.mono{font-family:ui-monospace,"Cascadia Code",Consolas,Menlo,monospace;font-size:.92em}
+  header{border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:30}
+  .bar{max-width:1080px;margin:0 auto;padding:14px 20px;display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+  .bar .name{font-weight:700}
+  .bar nav{margin-left:auto;display:flex;gap:18px;flex-wrap:wrap;align-items:baseline}
+  .bar nav a{text-decoration:none;color:var(--ink);border-bottom:2px solid transparent;padding-bottom:2px}
+  .bar nav a:hover{border-bottom-color:var(--accent)}
+  main{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  .hero h1{font-size:1.7rem;margin:.2em 0 .3em}
+  .hero p.lead{color:var(--muted);max-width:54rem;margin:.2em 0 1em}
+  .chips{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 8px}
+  .chip{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 12px;font-size:.92rem}
+  .chip b{font-variant-numeric:tabular-nums}
+  button.chip{cursor:pointer;font:inherit}
+  section{margin-top:44px;scroll-margin-top:70px}
+  h2{font-size:1.25rem;margin:0 0 4px;padding-bottom:6px;border-bottom:2px solid var(--accent);display:inline-block}
+  .sub{color:var(--muted);margin:6px 0 16px;max-width:56rem}
+  .badge{display:inline-block;border-radius:999px;padding:2px 9px;font-size:.7rem;font-weight:700;
+         letter-spacing:.05em;text-transform:uppercase;vertical-align:middle}
+  .badge-measured{color:var(--good);background:#d4f0d4}
+  .badge-schematic{color:var(--warn);background:#f5ecd0}
+  .tasks{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+  .tasks button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-size:.9rem;cursor:pointer}
+  .tasks button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);font-weight:600}
+  .lane{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:18px 0 6px}
+  .state{border:1px solid var(--line);border-radius:6px;padding:5px 9px;font-size:.8rem;color:var(--muted);background:#fff;transition:all .25s}
+  .state.cur{border-color:var(--accent);color:var(--accent);font-weight:700;box-shadow:0 0 0 1px var(--accent) inset;transform:scale(1.06)}
+  .state.done{color:var(--good);border-color:var(--good)}
+  .arrow{color:var(--muted);font-size:.8rem}
+  .controls{display:flex;gap:8px;margin:14px 0;align-items:center;flex-wrap:wrap}
+  .controls button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:7px 14px;font:inherit;cursor:pointer}
+  .controls button:hover{border-color:var(--accent)}
+  .controls button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .controls select{padding:6px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:.85rem}
+  .progress{color:var(--muted);font-size:.85rem;font-variant-numeric:tabular-nums}
+  .stepgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:720px){.stepgrid{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fff}
+  .card h3{margin:0 0 6px;font-size:.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  pre{white-space:pre-wrap;background:var(--panel);padding:8px 10px;border-radius:6px;margin:6px 0 0;font-size:.85rem;max-height:220px;overflow:auto}
+  table{border-collapse:collapse;width:100%;font-size:.9rem}
+  th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left}
+  th{background:var(--panel)}
+  .yes{color:var(--good);font-weight:700}.no{color:var(--bad);font-weight:700}
+  .attacks{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+  details.attack{border:1px solid var(--line);border-radius:8px;background:#fff}
+  details.attack summary{cursor:pointer;padding:10px 12px;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center}
+  details.attack summary::-webkit-details-marker{display:none}
+  details.attack summary:hover{background:var(--panel)}
+  .blocked{color:var(--bad);font-weight:700;font-size:.8rem;white-space:nowrap}
+  .attackbody{padding:0 12px 12px;border-top:1px solid var(--line);font-size:.88rem}
+  .gatepath{color:var(--muted);font-size:.8rem;margin:8px 0 4px}
+  .attackbody .g.pass{border-color:var(--good)!important;color:var(--good)!important}
+  .attackbody .g.stop{border-color:var(--bad)!important;color:var(--bad)!important;font-weight:600}
+  footer{border-top:1px solid var(--line);margin-top:56px;padding:18px 0 8px;color:var(--muted);font-size:.85rem}
+  :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+
+  /* hover terms */
+  .term{border-bottom:1px dotted var(--accent);cursor:help;position:relative}
+  .term::after{content:attr(data-tip);position:absolute;left:50%;bottom:130%;transform:translateX(-50%);
+    background:var(--ink);color:#fff;font-size:.78rem;font-weight:400;line-height:1.4;padding:7px 10px;
+    border-radius:6px;width:max-content;max-width:290px;opacity:0;pointer-events:none;transition:opacity .15s;z-index:40}
+  .term:hover::after,.term:focus-visible::after{opacity:1}
+
+  /* gate pipeline */
+  #pipeline{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:10px 0 2px}
+  #pipeline .g{border:1px solid var(--line);border-radius:6px;padding:5px 10px;font-size:.78rem;color:var(--muted);background:#fff;transition:all .2s}
+  #pipeline .g.pass{border-color:var(--good);color:var(--good);font-weight:600}
+  #pipeline .g.stop{border-color:var(--bad);color:var(--bad);font-weight:700}
+  #pipeline .g.cur{border-color:var(--accent);color:var(--accent);font-weight:700}
+  #pipeline .arr{color:var(--muted);font-size:.75rem}
+  #pipeline-note{font-size:.82rem;color:var(--muted);min-height:1.6em}
+
+  /* tour */
+  #tour-dim{position:fixed;inset:0;background:rgba(8,12,18,.45);z-index:50;display:none}
+  .tour-hi{position:relative;z-index:51;border-radius:10px;box-shadow:0 0 0 3px var(--accent),0 0 0 3000px rgba(8,12,18,.45)!important}
+  #tour-card{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:52;display:none;
+    width:min(620px,calc(100vw - 24px));background:#fff;border:1px solid var(--line);border-radius:12px;
+    box-shadow:0 12px 40px rgba(0,0,0,.22);padding:14px 16px}
+  #tour-card h4{margin:0 0 4px;font-size:.95rem}
+  #tour-card .body{font-size:.88rem;min-height:2.6em}
+  #tour-card .row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  #tour-card button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:6px 13px;font:inherit;font-size:.85rem;cursor:pointer}
+  #tour-card button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  #tour-card .stepno{margin-left:auto;color:var(--muted);font-size:.8rem}
+  #tour-card select{padding:5px 6px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:.8rem}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <span class="name">repo-engineer &middot; Autonomous Repository Engineer</span>
+    <nav aria-label="project links">
+      <button id="tour-open" type="button" class="chip" style="cursor:pointer">&#9654; Guided tour</button>
+      <a href="https://github.com/vaibhav3000/repo-engineer">GitHub</a>
+      <a href="https://github.com/vaibhav3000/repo-engineer/blob/main/reports/Autonomous_Repository_Engineer.pdf">Technical report (PDF)</a>
+      <a href="https://github.com/vaibhav3000/repo-engineer/tree/main/results">Committed results</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <h1>The planner proposes. The runtime disposes.</h1>
+    <p class="lead">A verified tool-using coding agent: a deterministic <span class="term" tabindex="0" data-tip="Explicit state machine (state.py): INIT, ANALYZE_REPO, PLAN, ACT, OBSERVE, REPLAN, VERIFY, COMPLETE, FAILED - illegal transitions raise.">state machine</span> validates every tool call against a schema, checks permission policies, jails every path inside the workspace, and trusts nothing except
+      a green test suite. Below: real executions from the committed deterministic benchmark, replayed step by step,
+      and the jail's actual rejection messages.</p>
+    <div class="chips">
+      <span class="chip">Deterministic benchmark: <b>4/4</b> tasks, <b>zero failed tool calls</b></span>
+      <span class="chip">Live Gemini planner: <b>2/2</b> on the same runtime (2 rate-limit errors absorbed)</span>
+      <span class="chip">Completion requires <b>exit=0</b> test evidence - never a model's claim</span>
+    </div>
+  </div>
+
+  <section id="replay-sec" aria-labelledby="replay-h">
+    <h2 id="replay-h">Replay a verified run</h2>
+    <p class="sub">These are committed execution traces from the deterministic benchmark (ScriptedPlanner; no
+      network, byte-stable). Watch each proposed call pass through the runtime's gates - or stop at the one that rejects it.
+      <span class="badge badge-measured">measured result</span></p>
+    <div class="tasks" id="task-btns" role="group" aria-label="choose task"></div>
+    <div class="lane" id="lane" aria-label="state machine"></div>
+    <div id="pipeline" aria-label="tool call gate pipeline"></div>
+    <p id="pipeline-note" aria-live="polite"></p>
+    <div class="controls">
+      <button id="btn-reset" type="button">Reset</button>
+      <button id="btn-back" type="button">&larr; Back</button>
+      <button id="btn-step" type="button">Next step</button>
+      <button id="btn-play" type="button" aria-pressed="false">Play</button>
+      <label class="mono" for="btn-speed" style="font-size:.8rem;color:var(--muted)">speed</label>
+      <select id="btn-speed" aria-label="replay speed"><option value="2">0.5x</option><option value="1" selected>1x</option><option value="0.5">2x</option></select>
+      <button id="story-failure" type="button" title="Guided: watch the failing test become a verified fix">&#9654; Failure &rarr; fix walkthrough</button>
+      <span class="progress" id="progress"></span>
+    </div>
+    <div class="stepgrid">
+      <div class="card" id="action-card"><h3>Proposed action &amp; gates</h3><div id="action-view"></div></div>
+      <div class="card" id="obs-card"><h3>Observation (runtime record)</h3><div id="obs-view"></div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Files changed (proposed paths)</h3><div id="files-view" class="mono" style="font-size:.9rem"></div></div>
+  </section>
+
+  <section id="bench-sec" aria-labelledby="bench-h">
+    <h2 id="bench-h">Benchmark record</h2>
+    <div class="stepgrid">
+      <div class="card"><h3>Deterministic (reproducible)</h3><div id="bench-det"></div></div>
+      <div class="card"><h3>Live LLM planner (recorded 2026-09-16)</h3><div id="bench-llm"></div></div>
+    </div>
+  </section>
+
+  <section id="jail-sec" aria-labelledby="jail-h">
+    <h2 id="jail-h">Attack the jail (real rejections)</h2>
+    <p class="sub">Each card replays a hostile tool call against the real <span class="term" tabindex="0" data-tip="ToolRegistry (tools.py): schema validation, permission policies, resolve-based path jail, allowlisted test execution.">ToolRegistry</span>; the
+      rejection text is captured output, not a mock. Open a card to see which gate stops it. <span class="badge badge-measured">captured output</span></p>
+    <div class="attacks" id="attacks"></div>
+  </section>
+
+  <footer>
+    <div>Replay-only demo: no planner, no LLM, no shell - the traces and rejection messages come from
+      <span class="mono">results/</span> in
+      <a href="https://github.com/vaibhav3000/repo-engineer">github.com/vaibhav3000/repo-engineer</a>
+      (regenerate with <span class="mono">python scripts/run_benchmark.py</span> and
+      <span class="mono">python demo-site/build.py</span>).
+      The deterministic mode remains the regression harness; the recorded LLM run demonstrates end-to-end capability
+      and covers two of the four tasks, once each - a demonstration, not a leaderboard.
+      Keyboard: Space play/pause, &larr;/&rarr; step, R reset - for the active player.</div>
+  </footer>
+</main>
+
+<div id="tour-dim" aria-hidden="true"></div>
+<div id="tour-card" role="dialog" aria-modal="false" aria-label="guided tour">
+  <h4 id="tour-title"></h4>
+  <div class="body" id="tour-body"></div>
+  <div class="row">
+    <button id="tour-back" type="button">&larr; Back</button>
+    <button id="tour-play" type="button" aria-pressed="false">Play</button>
+    <button id="tour-next" type="button" class="primary">Next &rarr;</button>
+    <button id="tour-exit" type="button">Exit</button>
+    <label class="mono" for="tour-speed" style="font-size:.8rem;color:var(--muted)">speed</label>
+    <select id="tour-speed" aria-label="tour speed"><option value="2">0.5x</option><option value="1" selected>1x</option><option value="0.5">2x</option></select>
+    <span class="stepno" id="tour-pos"></span>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+"use strict";
+const DATA = window.DATA;
+const TASK_LABELS = {
+  task_01_fix_off_by_one: "Fix off-by-one loop",
+  task_02_failing_test: "Repair failing test (with replan)",
+  task_03_add_missing_test: "Add missing test",
+  task_04_constrained_refactor: "Constrained refactor",
+};
+const REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const esc = s => { const d = document.createElement("span"); d.textContent = s == null ? "" : String(s); return d.innerHTML; };
+
+/* ---------- trace replay ---------- */
+let taskId = "task_02_failing_test";
+let cursor = 0;
+let timer = null, speed = 1, gateTimer = null;
+
+function steps(taskId){
+  const t = DATA.traces[taskId];
+  // the committed traces already include the analyze call as actions[0];
+  // do not add a second synthetic analyze step
+  const list = t.actions.map((a, i) => {
+    if (a.step === "analyze") return {kind:"analyze"};
+    return {kind:"action", action:a, obs:t.observations[i]};
+  });
+  const verify = (t.test_results || []).find(r => r.verify);
+  list.push({kind:"verify", passed: verify ? verify.passed : null});
+  list.push({kind:"complete", passed: t.state === "COMPLETE"});
+  return list;
+}
+function stateFor(step){
+  if (step.kind === "analyze") return "ANALYZE_REPO";
+  if (step.kind === "action"){
+    const isTest = step.action.tool === "run_tests";
+    if (isTest && step.obs && step.obs.ok && String(step.obs.output_excerpt).startsWith("exit=0")) return "VERIFY";
+    if (isTest) return "REPLAN";
+    return "OBSERVE";
+  }
+  return step.kind === "verify" ? "VERIFY" : "COMPLETE";
+}
+
+function renderTasks(){
+  const box = document.getElementById("task-btns");
+  box.innerHTML = "";
+  Object.keys(DATA.traces).forEach(id => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("aria-pressed", id === taskId ? "true" : "false");
+    b.textContent = TASK_LABELS[id] || id;
+    b.addEventListener("click", () => { taskId = id; cursor = 0; stopPlay(); renderTasks(); renderReplay(); });
+    box.appendChild(b);
+  });
+}
+
+function renderLane(){
+  const lane = document.getElementById("lane");
+  lane.innerHTML = "";
+  const seq = steps(taskId);
+  const cur = cursor < seq.length ? stateFor(seq[cursor]) : "COMPLETE";
+  const visited = new Set();
+  seq.slice(0, cursor + 1).forEach(s => visited.add(stateFor(s)));
+  if (cursor >= seq.length - 1) visited.add("COMPLETE");
+  ["INIT","ANALYZE_REPO","PLAN","ACT","OBSERVE","VERIFY","COMPLETE"].forEach((s, i) => {
+    if (i) lane.insertAdjacentHTML("beforeend", `<span class="arrow">&rarr;</span>`);
+    const cls = s === cur ? "state cur" : visited.has(s) ? "state done" : "state";
+    lane.insertAdjacentHTML("beforeend", `<span class="${cls}">${s}</span>`);
+  });
+  if (DATA.traces[taskId].replans > 0){
+    lane.insertAdjacentHTML("beforeend",
+      `<span class="arrow">&middot;</span><span class="${visited.has("REPLAN")?"state done":"state"}">REPLAN</span>`);
+  }
+}
+
+/* gate pipeline: which gate stops this call (or does it run through)? */
+function stopGate(obs){
+  const e = (obs.error || "");
+  if (e.includes("unknown tool")) return 1;                       // registry lookup fails at the schema stage
+  if (e.includes("must be") || e.includes("missing required") || e.includes("unknown arguments")) return 1;
+  if (e.includes("allowlist")) return 2;                          // execution-class policy
+  if (e.includes("policy") || e.includes("approval")) return 2;
+  if (e.includes("path escape") || e.includes("glob")) return 3;  // workspace jail
+  return -1; // no rejection
+}
+/* outcome semantics: gates can all pass and the run still FAIL its purpose
+   (run_tests returning exit=1 executed fine - the suite is red). */
+function outcomeFailed(action, obs){
+  if (!obs) return false;
+  if (!obs.ok && !obs.rejected) return true;
+  if (action && action.tool === "run_tests" && obs.ok){
+    const out = String(obs.output_excerpt || "");
+    return out.startsWith("exit=") && !out.startsWith("exit=0");
+  }
+  return false;
+}
+function renderPipeline(action, obs){
+  const box = document.getElementById("pipeline");
+  const note = document.getElementById("pipeline-note");
+  const gates = ["REQUEST","SCHEMA","POLICY","JAIL","EXECUTION","OBSERVATION"];
+  const stop = obs ? stopGate(obs) : -1;
+  const rejected = obs && obs.rejected;
+  const failedExec = outcomeFailed(action, obs);
+  box.innerHTML = gates.map((g, i) => {
+    let cls = "g";
+    if (obs){
+      if (rejected){ if (i < stop) cls += " pass"; else if (i === stop) cls += " stop"; }
+      else if (i === 5 && failedExec) cls += " stop";
+      else cls += " pass";
+    }
+    return `<span class="${cls}">${g}</span>`;
+  }).join("<span class='arr' aria-hidden='true'>\u2192</span>");
+  if (!obs){ note.textContent = "Press Play or Step - each proposed call passes through the runtime's gates."; return; }
+  if (rejected){
+    note.innerHTML = `<span class="no">REJECTED at ${esc(gates[stop])}</span> - the call never executed; the structured rejection is fed back to the planner as history.`;
+  } else if (failedExec){
+    note.innerHTML = `All gates passed and the call executed - the <b>outcome</b> failed (this is data, not a crash): the runtime observes it and replans.`;
+  } else {
+    note.innerHTML = `All gates passed; the runtime recorded the <span class="yes">ok</span> observation.`;
+  }
+}
+function animatePipeline(action, obs){
+  // sequential gate lighting for Play mode; instant for manual steps
+  renderPipeline(null, null);
+  const box = document.getElementById("pipeline");
+  const gates = Array.from(box.querySelectorAll(".g"));
+  const stop = obs ? stopGate(obs) : -1;
+  const rejected = obs && obs.rejected;
+  const failedExec = outcomeFailed(action, obs);
+  let i = 0;
+  if (gateTimer) clearInterval(gateTimer);
+  if (REDUCED){ renderPipeline(action, obs); return; }
+  gateTimer = setInterval(() => {
+    if (i >= gates.length){ clearInterval(gateTimer); gateTimer = null; renderPipeline(action, obs); return; }
+    const g = gates[i];
+    if (rejected && i === stop){ g.classList.add("stop"); clearInterval(gateTimer); gateTimer = null; renderPipeline(action, obs); return; }
+    if (i === 5 && failedExec){ g.classList.add("stop"); }
+    else g.classList.add("pass");
+    i++;
+  }, 320 * speed);
+}
+
+function renderStep(instant){
+  const seq = steps(taskId);
+  const t = DATA.traces[taskId];
+  const actionView = document.getElementById("action-view");
+  const obsView = document.getElementById("obs-view");
+  document.getElementById("progress").textContent =
+    `step ${Math.min(cursor, seq.length - 1)} of ${seq.length - 1} - final state: ${t.state} (${t.steps_used} steps, ${t.replans} replan${t.replans === 1 ? "" : "s"})`;
+  const step = seq[Math.min(cursor, seq.length - 1)];
+  if (step.kind === "analyze"){
+    document.getElementById("action-card").querySelector("h3").textContent = "Runtime analysis";
+    actionView.innerHTML = `<p style="margin:4px 0"><b>ANALYZE_REPO</b> - the runtime inspects the workspace itself.</p>
+      <div id="pipeline-host"></div><pre>list_tree {}</pre>`;
+    document.getElementById("obs-view").innerHTML = `<p style="margin:4px 0">Workspace listed; the loop enters PLAN.</p>`;
+    renderPipeline(null, {ok:true, rejected:false, error:null}); // analysis is a runtime-internal read-only call
+    document.getElementById("pipeline-note").textContent = "The analysis call is runtime-internal (read-only).";
+  } else if (step.kind === "action"){
+    const a = step.action, o = step.obs;
+    document.getElementById("action-card").querySelector("h3").textContent = "Proposed action & gates";
+    const isTest = a.tool === "run_tests";
+    actionView.innerHTML = `
+      <p style="margin:4px 0" class="mono"><b>${esc(a.tool)}</b> ${esc(JSON.stringify(a.args))}</p>
+      ${isTest ? '<p class="sub" style="margin:2px 0 0;font-size:.8rem">run_tests is allowlisted (python -m pytest / unittest), runs without a shell, with a timeout.</p>' : ""}`;
+    obsView.innerHTML = o.error
+      ? `<p class="no" style="margin:4px 0">ok=false (rejected)</p><pre>${esc(o.error)}</pre>`
+      : `<p class="${o.ok ? "yes" : "no"}" style="margin:4px 0">ok=${o.ok}</p><pre>${esc(o.output_excerpt)}</pre>`;
+    if (instant || REDUCED) renderPipeline(a, o); else animatePipeline(a, o);
+  } else if (step.kind === "verify"){
+    document.getElementById("action-card").querySelector("h3").textContent = "Verification gate";
+    document.getElementById("action-view").innerHTML = `<p style="margin:4px 0"><b>VERIFY</b> - the runtime re-runs the suite itself; the planner cannot claim completion.</p>`;
+    document.getElementById("obs-view").innerHTML = step.passed
+      ? `<p class="yes" style="margin:4px 0">green test evidence recorded</p><pre>exit=0</pre>`
+      : `<p class="no" style="margin:4px 0">tests failed</p>`;
+    renderPipeline(null, {ok:true, rejected:false, error:null});
+    document.getElementById("pipeline-note").textContent = "The verify run is allowlisted and runtime-initiated; only exit=0 opens COMPLETE.";
+  } else {
+    document.getElementById("action-card").querySelector("h3").textContent = "Terminal state";
+    document.getElementById("action-view").innerHTML = `<p style="margin:4px 0"><b>COMPLETE</b> - reachable only from VERIFY with exit=0.</p>`;
+    document.getElementById("obs-view").innerHTML = `<p class="${step.passed ? "yes" : "no"}" style="margin:4px 0">final state: ${esc(t.state)}${t.errors && t.errors.length ? " - errors: " + esc(t.errors.join("; ")) : ""}</p>`;
+    renderPipeline(null, null);
+    document.getElementById("pipeline-note").textContent = "";
+  }
+  document.getElementById("files-view").textContent = t.files_changed.join(", ") || "(none)";
+  renderLane();
+}
+function renderReplay(){ renderStep(true); }
+
+function stopPlay(){ if (timer){ clearInterval(timer); timer = null; if (gateTimer) clearInterval(gateTimer); const p = document.getElementById("btn-play"); p.textContent = "Play"; p.setAttribute("aria-pressed","false"); } }
+document.getElementById("btn-reset").addEventListener("click", () => { cursor = 0; stopPlay(); renderReplay(); });
+document.getElementById("btn-back").addEventListener("click", () => { cursor = Math.max(0, cursor - 1); stopPlay(); renderReplay(); });
+document.getElementById("btn-step").addEventListener("click", () => {
+  const n = steps(taskId).length;
+  cursor = Math.min(cursor + 1, n - 1);
+  stopPlay(); renderReplay();
+});
+document.getElementById("btn-play").addEventListener("click", () => {
+  if (timer){ stopPlay(); return; }
+  const p = document.getElementById("btn-play"); p.textContent = "Pause"; p.setAttribute("aria-pressed","true");
+  renderStep(false); // animate the current step's gates first
+  timer = setInterval(() => {
+    if (gateTimer) return; // wait for the current gate animation to finish
+    const n = steps(taskId).length;
+    if (cursor >= n - 1){ stopPlay(); return; }
+    cursor += 1; renderStep(false);
+  }, 1500 * speed);
+});
+document.getElementById("btn-speed").addEventListener("change", e => { speed = +e.target.value; });
+
+/* ---------- benchmark tables ---------- */
+function benchTable(results){
+  const rows = results.tasks.map(t => `
+    <tr><td>${esc(TASK_LABELS[t.task_id] || t.task_id)}</td>
+    <td class="${t.success ? "yes" : "no"}">${t.success ? "yes" : "no"}</td>
+    <td class="num">${t.steps}</td><td class="num">${t.replans}</td>
+    <td class="num">${t.failed_tool_calls}</td></tr>`).join("");
+  const s = results.summary;
+  return `<table><thead><tr><th>task</th><th>success</th><th class="num">steps</th>
+    <th class="num">replans</th><th class="num">failed calls</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="sub" style="margin:8px 0 0;font-size:.85rem">${s.n_success}/${s.n_tasks} tasks - ${s.total_failed_tool_calls} failed tool calls</p>`;
+}
+document.getElementById("bench-det").innerHTML = benchTable(DATA.benchmark);
+const llmRows = DATA.llm_benchmark.tasks.map(t => `
+  <tr><td>${esc(TASK_LABELS[t.task_id] || t.task_id)}</td>
+  <td class="${t.success ? "yes" : "no"}">${t.success ? "yes" : "no"}</td>
+  <td class="num">${t.llm_calls}</td><td class="num">${t.failed_tool_calls}</td>
+  <td>${t.errors && t.errors.length ? '<span class="no">2 x HTTP 429 absorbed</span>' : "clean"}</td></tr>`).join("");
+document.getElementById("bench-llm").innerHTML = `
+  <table><thead><tr><th>task</th><th>success</th><th class="num">LLM calls</th><th class="num">failed calls</th><th>notes</th></tr></thead>
+  <tbody>${llmRows}</tbody></table>
+  <p class="sub" style="margin:8px 0 0;font-size:.85rem">gemini-2.5-flash, temperature 0, same runtime; small-n by design.</p>`;
+
+/* ---------- attacks with gate animation ---------- */
+function renderAttacks(){
+  const box = document.getElementById("attacks");
+  DATA.attacks.forEach(a => {
+    const gate = a.error.includes("allowlist") ? "command allowlist"
+      : a.error.includes("unknown tool") ? "tool registry"
+      : a.error.includes("must be") ? "schema validation"
+      : "workspace jail";
+    const gates = ["REQUEST","SCHEMA","POLICY","JAIL","EXECUTION","OBSERVATION"];
+    const stopIdx = gate === "schema validation" || gate === "tool registry" ? 1
+                  : gate === "command allowlist" ? 2 : 3;
+    const d = document.createElement("details");
+    d.className = "attack";
+    d.innerHTML = `
+      <summary><span class="mono">${esc(a.tool)}(${esc(JSON.stringify(a.args)).slice(1, -1)})</span>
+      <span class="blocked">BLOCKED</span></summary>
+      <div class="attackbody">
+        <div class="pipeline mini" style="display:flex;gap:4px;flex-wrap:wrap;margin:10px 0 4px">
+          ${gates.map((g) => `<span class="g" style="border-radius:6px;padding:4px 8px;font-size:.72rem;background:#fff;transition:all .2s">${g}</span>`).join('<span class="arr" style="color:var(--muted);font-size:.7rem">\u2192</span>')}
+        </div>
+        <p class="gatepath" hidden>Stopped at <b>${esc(gate)}</b> - rejected before execution; no file read, no command run.</p>
+        <pre class="err" hidden>${esc(a.error)}</pre>
+        <button type="button" class="attack-replay" style="border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;font:inherit;font-size:.78rem;cursor:pointer;margin-top:8px">Replay animation</button>
+      </div>`;
+    box.appendChild(d);
+
+    const gEls = Array.from(d.querySelectorAll(".pipeline .g"));
+    const gatepath = d.querySelector(".gatepath");
+    const errEl = d.querySelector(".err");
+    let animTimer = null;
+    const showFinal = () => {
+      gEls.forEach((g, i) => {
+        g.classList.toggle("pass", i < stopIdx);
+        g.classList.toggle("stop", i === stopIdx);
+      });
+      gatepath.hidden = false; errEl.hidden = false;
+    };
+    const animate = () => {
+      if (animTimer) clearInterval(animTimer);
+      gEls.forEach(g => g.classList.remove("pass", "stop"));
+      gatepath.hidden = true; errEl.hidden = true;
+      if (REDUCED){ showFinal(); return; }
+      let i = 0;
+      animTimer = setInterval(() => {
+        if (i >= gEls.length){ clearInterval(animTimer); animTimer = null; showFinal(); return; }
+        const g = gEls[i];
+        if (i === stopIdx){
+          g.classList.add("stop");
+          gatepath.hidden = false; errEl.hidden = false;
+          clearInterval(animTimer); animTimer = null; return;
+        }
+        g.classList.add("pass");
+        i++;
+      }, 300);
+    };
+    d.addEventListener("toggle", () => { if (d.open) animate(); });
+    d.querySelector(".attack-replay").addEventListener("click", (e) => { e.preventDefault(); animate(); });
+  });
+}
+
+/* ---------- guided tour engine ---------- */
+let tour = null, tourIdx = 0, tourTimer = null, tourSpeed = 1;
+const tourDim = document.getElementById("tour-dim");
+const tourCard = document.getElementById("tour-card");
+function tourShow(i){
+  tourIdx = Math.max(0, Math.min(i, tour.steps.length-1));
+  const st = tour.steps[tourIdx];
+  document.querySelectorAll(".tour-hi").forEach(e => e.classList.remove("tour-hi"));
+  tourDim.style.display = "block"; tourCard.style.display = "block";
+  document.getElementById("tour-title").textContent = st.title;
+  document.getElementById("tour-body").innerHTML = st.html;
+  document.getElementById("tour-pos").textContent = `step ${tourIdx+1} / ${tour.steps.length}`;
+  document.getElementById("tour-back").disabled = tourIdx === 0;
+  document.getElementById("tour-next").disabled = tourIdx >= tour.steps.length-1;
+  if (st.onEnter) try { st.onEnter(); } catch(e) { /* tour must not break the page */ }
+  if (st.el){
+    const t = typeof st.el === "function" ? st.el() : document.querySelector(st.el);
+    if (t){ t.classList.add("tour-hi"); t.scrollIntoView({behavior: REDUCED ? "auto" : "smooth", block: "center"}); }
+  }
+}
+function tourStop(){ if (tourTimer){ clearInterval(tourTimer); tourTimer = null;
+  const p = document.getElementById("tour-play"); p.textContent = "Play"; p.setAttribute("aria-pressed","false"); } }
+function tourClose(){ tourStop(); tour = null; tourDim.style.display = "none"; tourCard.style.display = "none";
+  document.querySelectorAll(".tour-hi").forEach(e => e.classList.remove("tour-hi")); }
+function startTour(def){ if (tour) tourClose(); tour = def; tourShow(0); if (!REDUCED) tourPlayToggle(); }
+function tourPlayToggle(){
+  if (tourTimer){ tourStop(); return; }
+  const p = document.getElementById("tour-play"); p.textContent = "Pause"; p.setAttribute("aria-pressed","true");
+  tourTimer = setInterval(() => {
+    if (!tour || tourIdx >= tour.steps.length-1){ tourStop(); return; }
+    tourShow(tourIdx+1);
+  }, 4600 * tourSpeed);
+}
+document.getElementById("tour-open").addEventListener("click", () => startTour(TOURS.main));
+document.getElementById("tour-next").addEventListener("click", () => { tourStop(); tourShow(tourIdx+1); });
+document.getElementById("tour-back").addEventListener("click", () => { tourStop(); tourShow(tourIdx-1); });
+document.getElementById("tour-exit").addEventListener("click", tourClose);
+document.getElementById("tour-play").addEventListener("click", tourPlayToggle);
+document.getElementById("tour-speed").addEventListener("change", e => { tourSpeed = +e.target.value; });
+
+/* set replay to a given step and show it (used by the story tour) */
+function gotoStep(i){
+  stopPlay();
+  const n = steps(taskId).length;
+  cursor = Math.max(0, Math.min(i, n - 1));
+  renderStep(true);
+}
+const TOURS = {
+  main: { steps: [
+    { title: "What this page is", el: ".hero", html: "A coding agent whose <b>planner only proposes</b> - every action passes the runtime's gates, and completion requires green tests. The replays below are committed deterministic traces: real executions, byte-stable." },
+    { title: "The state machine", el: "#lane", html: "INIT \u2192 ANALYZE \u2192 PLAN \u2192 ACT \u2192 OBSERVE \u2192 VERIFY \u2192 COMPLETE. Illegal transitions raise; budgets bound the loop. Task 2 (selected) contains a replan - watch for it." },
+    { title: "The gate pipeline", el: "#pipeline", html: "Every proposed call passes REQUEST \u2192 SCHEMA \u2192 POLICY \u2192 JAIL \u2192 EXECUTION \u2192 OBSERVATION. A rejection stops at its gate and is fed back as history - never executed, never a crash." },
+    { title: "Watch a failure become a fix", el: "#story-failure", html: "The strongest moment: on task 2 the first test run exits 1, the runtime REPLANs, the planner edits the constant, the suite reruns green, VERIFY confirms, COMPLETE. Press the 'Failure → fix walkthrough' button right here to be guided through it." },
+    { title: "Attack the jail", el: "#jail-sec", html: "Hostile calls against the real ToolRegistry with captured rejection text - each stops at the gate that catches it. No arbitrary commands, no backend." },
+    { title: "The benchmark record", el: "#bench-sec", html: "4/4 deterministic, zero failed tool calls; the live Gemini run passes 2/2 on the same runtime with two 429s absorbed. Keyboard: Space play/pause, arrows step, R reset." },
+  ]},
+  failure: { steps: [
+    { title: "1. The suite is red", onEnter: () => { taskId = "task_02_failing_test"; cursor = 1; renderTasks(); renderStep(true); },
+      el: "#obs-card", html: "Step 1: the runtime runs the suite. exit=1 - the tax-rate test fails. This is an <b>outcome</b>, not a crash: gates passed, execution happened, the observation records the failure." },
+    { title: "2. The runtime replans", onEnter: () => { cursor = 1; renderStep(true); }, el: "#lane",
+      html: "OBSERVE sees the failed tests \u2192 REPLAN \u2192 PLAN. The planner is fed the failure as history - it cannot declare success, it can only propose the next action." },
+    { title: "3. Locate the bug", onEnter: () => { cursor = 2; renderStep(true); }, el: "#action-card",
+      html: "Proposed: search for TAX_RATE. Schema valid, policy AUTO, path jail not needed (read-only). The observation finds billing/invoice.py:3 - TAX_RATE = 0.20." },
+    { title: "4. The minimal fix", onEnter: () => { cursor = 3; renderStep(true); }, el: "#action-card",
+      html: "Proposed: apply_edit 0.20 \u2192 0.25 - one ambiguous-match-free replacement. The runtime jails the path, executes, and records 'edited billing/invoice.py: 1 replacement'." },
+    { title: "5. Green - but not yet complete", onEnter: () => { cursor = 4; renderStep(true); }, el: "#obs-card",
+      html: "The suite reruns: exit=0. Note: this is still just an observation. COMPLETE is unreachable from here." },
+    { title: "6. VERIFY, then COMPLETE", onEnter: () => { cursor = 5; renderStep(true); }, el: "#lane",
+      html: "The runtime re-runs the suite itself in VERIFY. Only exit=0 evidence opens COMPLETE - the model's word is never enough. That is the whole thesis." },
+  ]},
+};
+
+/* keyboard: tour takes priority; arrows/R also drive replay when no tour */
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "select" || tag === "textarea") return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const onBody = e.target === document.body;
+  const inReplay = onBody || document.getElementById("replay-sec").contains(e.target);
+  if (e.key === " "){
+    if (!onBody) return; // a focused button keeps native Space activation
+    e.preventDefault();
+    if (tour) tourPlayToggle(); else document.getElementById("btn-play").click();
+    return;
+  }
+  if (tour){
+    if (e.key === "ArrowRight"){ e.preventDefault(); tourStop(); tourShow(tourIdx+1); }
+    else if (e.key === "ArrowLeft"){ e.preventDefault(); tourStop(); tourShow(tourIdx-1); }
+    else if (e.key.toLowerCase() === "r"){ tourStop(); tourShow(0); }
+    else if (e.key === "Escape"){ tourClose(); }
+    return;
+  }
+  if (!inReplay) return;
+  const n = steps(taskId).length;
+  if (e.key === "ArrowRight"){ e.preventDefault(); cursor = Math.min(n-1, cursor+1); stopPlay(); renderReplay(); }
+  else if (e.key === "ArrowLeft"){ e.preventDefault(); cursor = Math.max(0, cursor-1); stopPlay(); renderReplay(); }
+  else if (e.key.toLowerCase() === "r"){ cursor = 0; stopPlay(); renderReplay(); }
+});
+
+/* ---------- init ---------- */
+document.getElementById("story-failure").addEventListener("click", () => startTour(TOURS.failure));
+renderTasks();
+renderReplay();
+renderAttacks();
+</script>
+</body>
+</html>
