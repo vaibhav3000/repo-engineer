@@ -213,9 +213,11 @@ let timer = null, speed = 1, gateTimer = null;
 
 function steps(taskId){
   const t = DATA.traces[taskId];
-  const list = [{kind:"analyze"}];
-  t.actions.forEach((a, i) => {
-    list.push({kind:"action", action:a, obs:t.observations[i]});
+  // the committed traces already include the analyze call as actions[0];
+  // do not add a second synthetic analyze step
+  const list = t.actions.map((a, i) => {
+    if (a.step === "analyze") return {kind:"analyze"};
+    return {kind:"action", action:a, obs:t.observations[i]};
   });
   const verify = (t.test_results || []).find(r => r.verify);
   list.push({kind:"verify", passed: verify ? verify.passed : null});
