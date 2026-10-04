@@ -142,6 +142,7 @@
       <button id="btn-play" type="button" aria-pressed="false">Play</button>
       <label class="mono" for="btn-speed" style="font-size:.8rem;color:var(--muted)">speed</label>
       <select id="btn-speed" aria-label="replay speed"><option value="2">0.5x</option><option value="1" selected>1x</option><option value="0.5">2x</option></select>
+      <button id="story-failure" type="button" title="Guided: watch the failing test become a verified fix">&#9654; Failure &rarr; fix walkthrough</button>
       <span class="progress" id="progress"></span>
     </div>
     <div class="stepgrid">
@@ -313,7 +314,7 @@ function renderPipeline(action, obs){
     note.innerHTML = `All gates passed; the runtime recorded the <span class="yes">ok</span> observation.`;
   }
 }
-function animatePipeline(action, obs, done){
+function animatePipeline(action, obs){
   // sequential gate lighting for Play mode; instant for manual steps
   renderPipeline(null, null);
   const box = document.getElementById("pipeline");
@@ -323,11 +324,11 @@ function animatePipeline(action, obs, done){
   const failedExec = outcomeFailed(action, obs);
   let i = 0;
   if (gateTimer) clearInterval(gateTimer);
-  if (REDUCED){ renderPipeline(action, obs); done && done(); return; }
+  if (REDUCED){ renderPipeline(action, obs); return; }
   gateTimer = setInterval(() => {
-    if (i >= gates.length){ clearInterval(gateTimer); gateTimer = null; renderPipeline(action, obs); done && done(); return; }
+    if (i >= gates.length){ clearInterval(gateTimer); gateTimer = null; renderPipeline(action, obs); return; }
     const g = gates[i];
-    if (rejected && i === stop){ g.classList.add("stop"); clearInterval(gateTimer); gateTimer = null; renderPipeline(action, obs); done && done(); return; }
+    if (rejected && i === stop){ g.classList.add("stop"); clearInterval(gateTimer); gateTimer = null; renderPipeline(action, obs); return; }
     if (i === 5 && failedExec){ g.classList.add("stop"); }
     else g.classList.add("pass");
     i++;
@@ -503,7 +504,7 @@ const TOURS = {
     { title: "What this page is", el: ".hero", html: "A coding agent whose <b>planner only proposes</b> - every action passes the runtime's gates, and completion requires green tests. The replays below are committed deterministic traces: real executions, byte-stable." },
     { title: "The state machine", el: "#lane", html: "INIT \u2192 ANALYZE \u2192 PLAN \u2192 ACT \u2192 OBSERVE \u2192 VERIFY \u2192 COMPLETE. Illegal transitions raise; budgets bound the loop. Task 2 (selected) contains a replan - watch for it." },
     { title: "The gate pipeline", el: "#pipeline", html: "Every proposed call passes REQUEST \u2192 SCHEMA \u2192 POLICY \u2192 JAIL \u2192 EXECUTION \u2192 OBSERVATION. A rejection stops at its gate and is fed back as history - never executed, never a crash." },
-    { title: "Watch a failure become a fix", el: "#btn-step", html: "The strongest moment: on task 2 the first test run exits 1, the runtime REPLANs, the planner edits the constant, the suite reruns green, VERIFY confirms, COMPLETE. Use \u2192 / Space on the replay (or the tour 'failure' button in the replay section)." },
+    { title: "Watch a failure become a fix", el: "#story-failure", html: "The strongest moment: on task 2 the first test run exits 1, the runtime REPLANs, the planner edits the constant, the suite reruns green, VERIFY confirms, COMPLETE. Press the 'Failure → fix walkthrough' button right here to be guided through it." },
     { title: "Attack the jail", el: "#jail-sec", html: "Hostile calls against the real ToolRegistry with captured rejection text - each stops at the gate that catches it. No arbitrary commands, no backend." },
     { title: "The benchmark record", el: "#bench-sec", html: "4/4 deterministic, zero failed tool calls; the live Gemini run passes 2/2 on the same runtime with two 429s absorbed. Keyboard: Space play/pause, arrows step, R reset." },
   ]},
@@ -527,7 +528,11 @@ const TOURS = {
 document.addEventListener("keydown", (e) => {
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "select" || tag === "textarea") return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const onBody = e.target === document.body;
+  const inReplay = onBody || document.getElementById("replay-sec").contains(e.target);
   if (e.key === " "){
+    if (!onBody) return; // a focused button keeps native Space activation
     e.preventDefault();
     if (tour) tourPlayToggle(); else document.getElementById("btn-play").click();
     return;
@@ -539,6 +544,7 @@ document.addEventListener("keydown", (e) => {
     else if (e.key === "Escape"){ tourClose(); }
     return;
   }
+  if (!inReplay) return;
   const n = steps(taskId).length;
   if (e.key === "ArrowRight"){ e.preventDefault(); cursor = Math.min(n-1, cursor+1); stopPlay(); renderReplay(); }
   else if (e.key === "ArrowLeft"){ e.preventDefault(); cursor = Math.max(0, cursor-1); stopPlay(); renderReplay(); }
@@ -546,6 +552,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* ---------- init ---------- */
+document.getElementById("story-failure").addEventListener("click", () => startTour(TOURS.failure));
 renderTasks();
 renderReplay();
 renderAttacks();
