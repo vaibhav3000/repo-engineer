@@ -65,6 +65,8 @@
   .blocked{color:var(--bad);font-weight:700;font-size:.8rem;white-space:nowrap}
   .attackbody{padding:0 12px 12px;border-top:1px solid var(--line);font-size:.88rem}
   .gatepath{color:var(--muted);font-size:.8rem;margin:8px 0 4px}
+  .attackbody .g.pass{border-color:var(--good)!important;color:var(--good)!important}
+  .attackbody .g.stop{border-color:var(--bad)!important;color:var(--bad)!important;font-weight:600}
   footer{border-top:1px solid var(--line);margin-top:56px;padding:18px 0 8px;color:var(--muted);font-size:.85rem}
   :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
   @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
@@ -433,7 +435,7 @@ function renderAttacks(){
       : a.error.includes("unknown tool") ? "tool registry"
       : a.error.includes("must be") ? "schema validation"
       : "workspace jail";
-    const gates = ["REQUEST","SCHEMA","POLICY","JAIL"];
+    const gates = ["REQUEST","SCHEMA","POLICY","JAIL","EXECUTION","OBSERVATION"];
     const stopIdx = gate === "schema validation" || gate === "tool registry" ? 1
                   : gate === "command allowlist" ? 2 : 3;
     const d = document.createElement("details");
@@ -443,12 +445,45 @@ function renderAttacks(){
       <span class="blocked">BLOCKED</span></summary>
       <div class="attackbody">
         <div class="pipeline mini" style="display:flex;gap:4px;flex-wrap:wrap;margin:10px 0 4px">
-          ${gates.map((g,i) => `<span class="g ${i===stopIdx?"stop":""}" style="border:1px solid ${i===stopIdx?"var(--bad)":"var(--line)"};color:${i===stopIdx?"var(--bad)":"var(--muted)"};border-radius:6px;padding:4px 8px;font-size:.72rem;background:#fff">${g}</span>${i<gates.length-1?'<span class="arr" style="color:var(--muted);font-size:.7rem">\u2192</span>':''}`).join("")}
+          ${gates.map((g) => `<span class="g" style="border-radius:6px;padding:4px 8px;font-size:.72rem;background:#fff;transition:all .2s">${g}</span>`).join('<span class="arr" style="color:var(--muted);font-size:.7rem">\u2192</span>')}
         </div>
-        <p class="gatepath">Stopped at <b>${esc(gate)}</b> - rejected before execution; no file read, no command run.</p>
-        <pre class="err">${esc(a.error)}</pre>
+        <p class="gatepath" hidden>Stopped at <b>${esc(gate)}</b> - rejected before execution; no file read, no command run.</p>
+        <pre class="err" hidden>${esc(a.error)}</pre>
+        <button type="button" class="attack-replay" style="border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;font:inherit;font-size:.78rem;cursor:pointer;margin-top:8px">Replay animation</button>
       </div>`;
     box.appendChild(d);
+
+    const gEls = Array.from(d.querySelectorAll(".pipeline .g"));
+    const gatepath = d.querySelector(".gatepath");
+    const errEl = d.querySelector(".err");
+    let animTimer = null;
+    const showFinal = () => {
+      gEls.forEach((g, i) => {
+        g.classList.toggle("pass", i < stopIdx);
+        g.classList.toggle("stop", i === stopIdx);
+      });
+      gatepath.hidden = false; errEl.hidden = false;
+    };
+    const animate = () => {
+      if (animTimer) clearInterval(animTimer);
+      gEls.forEach(g => g.classList.remove("pass", "stop"));
+      gatepath.hidden = true; errEl.hidden = true;
+      if (REDUCED){ showFinal(); return; }
+      let i = 0;
+      animTimer = setInterval(() => {
+        if (i >= gEls.length){ clearInterval(animTimer); animTimer = null; showFinal(); return; }
+        const g = gEls[i];
+        if (i === stopIdx){
+          g.classList.add("stop");
+          gatepath.hidden = false; errEl.hidden = false;
+          clearInterval(animTimer); animTimer = null; return;
+        }
+        g.classList.add("pass");
+        i++;
+      }, 300);
+    };
+    d.addEventListener("toggle", () => { if (d.open) animate(); });
+    d.querySelector(".attack-replay").addEventListener("click", (e) => { e.preventDefault(); animate(); });
   });
 }
 

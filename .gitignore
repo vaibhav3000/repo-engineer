@@ -9,3 +9,6 @@ dist/
 runs/
 Thumbs.db
 .DS_Store
+
+# demo-site e2e
+node_modules/
