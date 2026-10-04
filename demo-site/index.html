@@ -275,13 +275,24 @@ function stopGate(obs){
   if (e.includes("path escape") || e.includes("glob")) return 3;  // workspace jail
   return -1; // no rejection
 }
-function renderPipeline(obs){
+/* outcome semantics: gates can all pass and the run still FAIL its purpose
+   (run_tests returning exit=1 executed fine - the suite is red). */
+function outcomeFailed(action, obs){
+  if (!obs) return false;
+  if (!obs.ok && !obs.rejected) return true;
+  if (action && action.tool === "run_tests" && obs.ok){
+    const out = String(obs.output_excerpt || "");
+    return out.startsWith("exit=") && !out.startsWith("exit=0");
+  }
+  return false;
+}
+function renderPipeline(action, obs){
   const box = document.getElementById("pipeline");
   const note = document.getElementById("pipeline-note");
   const gates = ["REQUEST","SCHEMA","POLICY","JAIL","EXECUTION","OBSERVATION"];
   const stop = obs ? stopGate(obs) : -1;
   const rejected = obs && obs.rejected;
-  const failedExec = obs && !obs.ok && !obs.rejected; // ran, but outcome failed (e.g. exit=1)
+  const failedExec = outcomeFailed(action, obs);
   box.innerHTML = gates.map((g, i) => {
     let cls = "g";
     if (obs){
@@ -300,21 +311,21 @@ function renderPipeline(obs){
     note.innerHTML = `All gates passed; the runtime recorded the <span class="yes">ok</span> observation.`;
   }
 }
-function animatePipeline(obs, done){
+function animatePipeline(action, obs, done){
   // sequential gate lighting for Play mode; instant for manual steps
-  renderPipeline(null);
+  renderPipeline(null, null);
   const box = document.getElementById("pipeline");
-  const gates = [...box.querySelectorAll(".g")];
+  const gates = Array.from(box.querySelectorAll(".g"));
   const stop = obs ? stopGate(obs) : -1;
   const rejected = obs && obs.rejected;
-  const failedExec = obs && !obs.ok && !obs.rejected;
+  const failedExec = outcomeFailed(action, obs);
   let i = 0;
   if (gateTimer) clearInterval(gateTimer);
-  if (REDUCED){ renderPipeline(obs); done && done(); return; }
+  if (REDUCED){ renderPipeline(action, obs); done && done(); return; }
   gateTimer = setInterval(() => {
-    if (i >= gates.length){ clearInterval(gateTimer); gateTimer = null; renderPipeline(obs); done && done(); return; }
+    if (i >= gates.length){ clearInterval(gateTimer); gateTimer = null; renderPipeline(action, obs); done && done(); return; }
     const g = gates[i];
-    if (rejected && i === stop){ g.classList.add("stop"); note.textContent = `REJECTED at ${gates[stop].textContent} - the call never executed.`; clearInterval(gateTimer); gateTimer = null; renderPipeline(obs); done && done(); return; }
+    if (rejected && i === stop){ g.classList.add("stop"); clearInterval(gateTimer); gateTimer = null; renderPipeline(action, obs); done && done(); return; }
     if (i === 5 && failedExec){ g.classList.add("stop"); }
     else g.classList.add("pass");
     i++;
@@ -334,7 +345,7 @@ function renderStep(instant){
     actionView.innerHTML = `<p style="margin:4px 0"><b>ANALYZE_REPO</b> - the runtime inspects the workspace itself.</p>
       <div id="pipeline-host"></div><pre>list_tree {}</pre>`;
     document.getElementById("obs-view").innerHTML = `<p style="margin:4px 0">Workspace listed; the loop enters PLAN.</p>`;
-    renderPipeline({ok:true, rejected:false, error:null}); // analysis is a runtime-internal read-only call
+    renderPipeline(null, {ok:true, rejected:false, error:null}); // analysis is a runtime-internal read-only call
     document.getElementById("pipeline-note").textContent = "The analysis call is runtime-internal (read-only).";
   } else if (step.kind === "action"){
     const a = step.action, o = step.obs;
@@ -346,20 +357,20 @@ function renderStep(instant){
     obsView.innerHTML = o.error
       ? `<p class="no" style="margin:4px 0">ok=false (rejected)</p><pre>${esc(o.error)}</pre>`
       : `<p class="${o.ok ? "yes" : "no"}" style="margin:4px 0">ok=${o.ok}</p><pre>${esc(o.output_excerpt)}</pre>`;
-    if (instant || REDUCED) renderPipeline(o); else animatePipeline(o);
+    if (instant || REDUCED) renderPipeline(a, o); else animatePipeline(a, o);
   } else if (step.kind === "verify"){
     document.getElementById("action-card").querySelector("h3").textContent = "Verification gate";
     document.getElementById("action-view").innerHTML = `<p style="margin:4px 0"><b>VERIFY</b> - the runtime re-runs the suite itself; the planner cannot claim completion.</p>`;
     document.getElementById("obs-view").innerHTML = step.passed
       ? `<p class="yes" style="margin:4px 0">green test evidence recorded</p><pre>exit=0</pre>`
       : `<p class="no" style="margin:4px 0">tests failed</p>`;
-    renderPipeline({ok:true, rejected:false, error:null});
+    renderPipeline(null, {ok:true, rejected:false, error:null});
     document.getElementById("pipeline-note").textContent = "The verify run is allowlisted and runtime-initiated; only exit=0 opens COMPLETE.";
   } else {
     document.getElementById("action-card").querySelector("h3").textContent = "Terminal state";
     document.getElementById("action-view").innerHTML = `<p style="margin:4px 0"><b>COMPLETE</b> - reachable only from VERIFY with exit=0.</p>`;
     document.getElementById("obs-view").innerHTML = `<p class="${step.passed ? "yes" : "no"}" style="margin:4px 0">final state: ${esc(t.state)}${t.errors && t.errors.length ? " - errors: " + esc(t.errors.join("; ")) : ""}</p>`;
-    renderPipeline(null);
+    renderPipeline(null, null);
     document.getElementById("pipeline-note").textContent = "";
   }
   document.getElementById("files-view").textContent = t.files_changed.join(", ") || "(none)";
@@ -378,14 +389,7 @@ document.getElementById("btn-step").addEventListener("click", () => {
 document.getElementById("btn-play").addEventListener("click", () => {
   if (timer){ stopPlay(); return; }
   const p = document.getElementById("btn-play"); p.textContent = "Pause"; p.setAttribute("aria-pressed","true");
-  const tick = () => {
-    const n = steps(taskId).length;
-    if (cursor >= n - 1){ stopPlay(); return; }
-    cursor += 1;
-    renderStep(false); // animated gates
-  };
-  // first tick animates the current step's gates, then advances
-  renderStep(false);
+  renderStep(false); // animate the current step's gates first
   timer = setInterval(() => {
     if (gateTimer) return; // wait for the current gate animation to finish
     const n = steps(taskId).length;
