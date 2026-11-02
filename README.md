@@ -194,3 +194,11 @@ docs/                    interview_guide.md, architecture.md
 ## License
 
 MIT. See LICENSE.
+
+## Docker Sandboxed Execution
+
+```bash
+docker build -t repo-engineer .
+docker run --rm --network none repo-engineer
+docker run --rm repo-engineer python scripts/run_benchmark.py
+```
