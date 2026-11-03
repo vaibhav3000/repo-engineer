@@ -7,10 +7,16 @@ task, it inspects the repo, plans, edits files through validated tools, runs
 the test suite, observes failures, replans, and only declares success when the
 verification suite is green.
 
-```
-INIT -> ANALYZE_REPO -> PLAN -> ACT -> OBSERVE -+-> PLAN (next step)
-                                                |-> REPLAN (tests failed)
-                                                +-> VERIFY -> COMPLETE / FAILED
+```mermaid
+flowchart TD
+    INIT --> ANALYZE_REPO
+    ANALYZE_REPO --> PLAN
+    PLAN --> ACT["ACT (7 Schema-Validated Tools, Path Jailing, AUTO/ASK/DENY Policy Gates)"]
+    ACT --> OBSERVE
+    OBSERVE --> VERIFY["VERIFY (Pytest Gate)"]
+    VERIFY -->|Tests Pass| COMPLETE
+    VERIFY -->|Within Replan Budget| PLAN
+    VERIFY -->|Budget Exhausted| FAILED
 ```
 
 The core design rule: **the planner proposes, the runtime disposes.** The LLM
