@@ -1,4 +1,4 @@
-# repo-engineer: Interview Defense Guide
+# repo-engineer: Design FAQ
 
 Answers reflect the actual implementation in `src/repo_engineer/`. Where the
 honest answer is a limitation, the limitation is stated.
