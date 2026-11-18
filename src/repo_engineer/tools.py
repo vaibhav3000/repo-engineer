@@ -35,6 +35,16 @@ class Policy(StrEnum):
     DENY = "DENY"  # never execute
 
 
+# Applied to every permission class a caller's policy does not mention, so a
+# partial policy such as {EXECUTION: DENY} restricts one class and keeps the
+# others usable.
+DEFAULT_POLICY: dict[Permission, Policy] = {
+    Permission.READ_ONLY: Policy.AUTO,
+    Permission.MUTATING: Policy.AUTO,
+    Permission.EXECUTION: Policy.AUTO,
+}
+
+
 @dataclass
 class ToolSpec:
     name: str
@@ -80,11 +90,7 @@ class ToolRegistry:
         exec_timeout_s: float = 120.0,
     ) -> None:
         self.workspace = Path(workspace).resolve()
-        self.policy = policy or {
-            Permission.READ_ONLY: Policy.AUTO,
-            Permission.MUTATING: Policy.AUTO,
-            Permission.EXECUTION: Policy.AUTO,
-        }
+        self.policy: dict[Permission, Policy] = {**DEFAULT_POLICY, **(policy or {})}
         self.ask_callback = ask_callback
         self.test_command_allowlist = test_command_allowlist
         self.exec_timeout_s = exec_timeout_s
@@ -212,23 +218,19 @@ class ToolRegistry:
         if schema_error:
             return Observation(tool=call.tool, ok=False, rejected=True, error=schema_error)
 
-        policy = self.policy[spec.permission]
-        if policy is Policy.DENY:
+        policy = self.policy.get(spec.permission, Policy.DENY)
+        if policy == Policy.ASK:
+            denial = self._ask_approval(spec, call.args)
+            if denial is not None:
+                return Observation(tool=call.tool, ok=False, rejected=True, error=denial)
+        elif policy != Policy.AUTO:
+            # DENY, and any value that is not a recognised policy: fail closed.
             return Observation(
                 tool=call.tool,
                 ok=False,
                 rejected=True,
                 error=f"policy denies {spec.permission.value} tools",
             )
-        if policy is Policy.ASK:
-            allowed = bool(self.ask_callback and self.ask_callback(spec, call.args))
-            if not allowed:
-                return Observation(
-                    tool=call.tool,
-                    ok=False,
-                    rejected=True,
-                    error="policy ASK: no approval granted (headless denies)",
-                )
 
         try:
             output = spec.run(**call.args)
@@ -279,6 +281,22 @@ class ToolRegistry:
                 error=str(exc),
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
+
+    def _ask_approval(self, spec: ToolSpec, args: dict[str, Any]) -> str | None:
+        """Ask the approver; return None when approved, else the denial reason.
+
+        Only an explicit True approves. A missing approver (headless run), any
+        other return value, or an approver that raises is a denial.
+        """
+        if self.ask_callback is None:
+            return "policy ASK: no approval granted (headless denies)"
+        try:
+            approved = self.ask_callback(spec, dict(args))
+        except Exception as exc:
+            return f"policy ASK: approver raised {type(exc).__name__}, so no approval was granted"
+        if approved is not True:
+            return "policy ASK: no approval granted"
+        return None
 
     # ------------------------------------------------------------- tools
 
