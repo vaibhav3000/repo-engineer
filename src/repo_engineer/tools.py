@@ -20,6 +20,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
+from .process import child_env_passthrough_all, run_bounded
 from .state import Observation, ToolCall
 
 
@@ -38,6 +39,19 @@ class Policy(StrEnum):
 # Applied to every permission class a caller's policy does not mention, so a
 # partial policy such as {EXECUTION: DENY} restricts one class and keeps the
 # others usable.
+# Longest text an observation carries. Command output keeps its tail, where
+# pytest prints failures and the summary; other tools keep their head.
+OUTPUT_LIMIT = 4000
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    """What an EXECUTION tool returns: the output tail and the real exit status."""
+
+    output: str
+    exit_code: int
+
+
 DEFAULT_POLICY: dict[Permission, Policy] = {
     Permission.READ_ONLY: Policy.AUTO,
     Permission.MUTATING: Policy.AUTO,
@@ -234,10 +248,19 @@ class ToolRegistry:
 
         try:
             output = spec.run(**call.args)
+            if isinstance(output, CommandResult):
+                prefix = f"exit={output.exit_code}\n"
+                return Observation(
+                    tool=call.tool,
+                    ok=True,
+                    output_excerpt=prefix + _tail(output.output, OUTPUT_LIMIT - len(prefix)),
+                    exit_code=output.exit_code,
+                    latency_ms=(_time.perf_counter() - started) * 1000,
+                )
             return Observation(
                 tool=call.tool,
                 ok=True,
-                output_excerpt=str(output)[:4000],
+                output_excerpt=str(output)[:OUTPUT_LIMIT],
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
         except PermissionError as exc:
@@ -258,10 +281,12 @@ class ToolRegistry:
         except subprocess.TimeoutExpired as exc:
             # Execution-class failure with a real duration: an Observation,
             # never a crash of the runtime loop.
+            partial = exc.output if isinstance(exc.output, str) else ""
             return Observation(
                 tool=call.tool,
                 ok=False,
-                error=f"command timed out after {exc.timeout:.0f}s",
+                output_excerpt=_tail(partial, OUTPUT_LIMIT),
+                error=f"command timed out after {exc.timeout:.0f}s; the process tree was killed",
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
         except OSError as exc:
@@ -401,19 +426,31 @@ class ToolRegistry:
         except (OSError, subprocess.TimeoutExpired):
             return "(git unavailable)"
 
-    def _run_tests(self, cmd: str) -> str:
+    def _run_tests(self, cmd: str) -> CommandResult:
         allowed = any(cmd.startswith(prefix) for prefix in self.test_command_allowlist)
         if not allowed:
             raise PermissionError(
                 f"command not in allowlist {list(self.test_command_allowlist)}: {cmd!r}"
             )
-        proc = subprocess.run(
+        result = run_bounded(
             cmd.split(),
             cwd=self.workspace,
-            capture_output=True,
-            text=True,
-            timeout=self.exec_timeout_s,
-            shell=False,
+            env=child_env_passthrough_all(),
+            timeout_s=self.exec_timeout_s,
         )
-        tail = (proc.stdout + proc.stderr)[-4000:]
-        return f"exit={proc.returncode}\n{tail}"
+        if result.timed_out or result.exit_code is None:
+            raise subprocess.TimeoutExpired(cmd, self.exec_timeout_s, output=result.output)
+        return CommandResult(
+            output=_note_omitted(result.output, result.omitted_bytes),
+            exit_code=result.exit_code,
+        )
+
+
+def _tail(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[len(text) - limit :]
+
+
+def _note_omitted(output: str, omitted_bytes: int) -> str:
+    if omitted_bytes <= 0:
+        return output
+    return f"[{omitted_bytes} bytes of earlier output omitted]\n{output}"
