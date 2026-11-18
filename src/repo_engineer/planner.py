@@ -38,7 +38,9 @@ Tools:
 - apply_edit {"path": str, "old_text": str, "new_text": str}  -> replaces EXACTLY ONE occurrence; 0 or 2+ matches is an error
 - write_file {"path": str, "content": str}  -> creates a NEW file; refuses to overwrite
 - git_diff {}  -> current changes
-- run_tests {"cmd": str}  -> only "python -m pytest ..." or "python -m unittest ..." allowed
+- run_tests {"cmd": str}  -> only "python -m pytest [flags] [test paths]"; flags limited to
+  -q, -v, -x, -s, -l, -r<chars>, --tb=<style>, --maxfail=<n>, -k <expr>, -m <expr>;
+  test paths must exist inside the workspace; the result starts with exit=<code>
 
 Rules:
 - Paths are relative to the workspace root. The runtime rejects anything else.

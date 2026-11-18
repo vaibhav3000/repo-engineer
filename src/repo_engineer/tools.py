@@ -12,8 +12,13 @@ Design rules:
 
 from __future__ import annotations
 
+import configparser
 import os
+import re
+import shlex
 import subprocess
+import sys
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -36,12 +41,57 @@ class Policy(StrEnum):
     DENY = "DENY"  # never execute
 
 
-# Applied to every permission class a caller's policy does not mention, so a
-# partial policy such as {EXECUTION: DENY} restricts one class and keeps the
-# others usable.
 # Longest text an observation carries. Command output keeps its tail, where
 # pytest prints failures and the summary; other tools keep their head.
 OUTPUT_LIMIT = 4000
+
+# run_tests accepts exactly this prefix, then flags from the allowlist below and
+# test paths inside the workspace. Anything else is rejected before a process
+# starts. pytest also collects unittest-style tests, so no other runner is needed.
+TEST_COMMAND_PREFIX = ("python", "-m", "pytest")
+MAX_COMMAND_CHARS = 2000
+ALLOWED_PYTEST_FLAGS = frozenset(
+    {
+        "-q",
+        "-qq",
+        "--quiet",
+        "-v",
+        "-vv",
+        "--verbose",
+        "-x",
+        "--exitfirst",
+        "-s",
+        "-l",
+        "--showlocals",
+        "--no-header",
+    }
+)
+ALLOWED_PYTEST_FLAG_FORMS = (
+    re.compile(r"-r[fEsxXpPaAwN]+"),
+    re.compile(r"--tb=(auto|long|short|line|native|no)"),
+    re.compile(r"--maxfail=[0-9]{1,4}"),
+    re.compile(r"--capture=(no|sys|fd|tee-sys)"),
+)
+PYTEST_FLAGS_WITH_VALUE = frozenset({"-k", "-m"})
+SHELL_SYNTAX = frozenset(";|&<>`$\n\r")
+ALLOWED_FLAGS_HELP = (
+    "-q, -v, -x, -s, -l, -r<chars>, --tb=<style>, --maxfail=<n>, --capture=<method>, "
+    "--no-header, -k <expr>, -m <expr>"
+)
+
+# pytest config files the runtime will honour, in pytest's own search order,
+# with the text that marks a file as carrying pytest settings.
+PYTEST_CONFIG_FILES = (
+    ("pytest.ini", ""),
+    (".pytest.ini", ""),
+    ("pyproject.toml", "[tool.pytest"),
+    ("tox.ini", "[pytest]"),
+    ("setup.cfg", "[tool:pytest]"),
+)
+
+
+class JailViolation(PermissionError):
+    """A call the jail or the run_tests command check refused; reported as rejected."""
 
 
 @dataclass(frozen=True)
@@ -52,6 +102,9 @@ class CommandResult:
     exit_code: int
 
 
+# Applied to every permission class a caller's policy does not mention, so a
+# partial policy such as {EXECUTION: DENY} restricts one class and keeps the
+# others usable.
 DEFAULT_POLICY: dict[Permission, Policy] = {
     Permission.READ_ONLY: Policy.AUTO,
     Permission.MUTATING: Policy.AUTO,
@@ -100,13 +153,11 @@ class ToolRegistry:
         workspace: str | Path,
         policy: dict[Permission, Policy] | None = None,
         ask_callback: Callable[[ToolSpec, dict[str, Any]], bool] | None = None,
-        test_command_allowlist: tuple[str, ...] = ("python -m pytest", "python -m unittest"),
         exec_timeout_s: float = 120.0,
     ) -> None:
         self.workspace = Path(workspace).resolve()
         self.policy: dict[Permission, Policy] = {**DEFAULT_POLICY, **(policy or {})}
         self.ask_callback = ask_callback
-        self.test_command_allowlist = test_command_allowlist
         self.exec_timeout_s = exec_timeout_s
         self.specs: dict[str, ToolSpec] = {}
         self._register_defaults()
@@ -348,8 +399,6 @@ class ToolRegistry:
         return "\n".join(lines) or "(empty workspace)"
 
     def _search(self, pattern: str, glob: str = "**/*.py") -> str:
-        import re
-
         self.jailed_glob(glob)
         try:
             regex = re.compile(pattern, re.IGNORECASE)
@@ -427,13 +476,9 @@ class ToolRegistry:
             return "(git unavailable)"
 
     def _run_tests(self, cmd: str) -> CommandResult:
-        allowed = any(cmd.startswith(prefix) for prefix in self.test_command_allowlist)
-        if not allowed:
-            raise PermissionError(
-                f"command not in allowlist {list(self.test_command_allowlist)}: {cmd!r}"
-            )
+        args = self.parse_test_command(cmd)
         result = run_bounded(
-            cmd.split(),
+            self.pytest_argv(args),
             cwd=self.workspace,
             env=child_env_passthrough_all(),
             timeout_s=self.exec_timeout_s,
@@ -444,6 +489,148 @@ class ToolRegistry:
             output=_note_omitted(result.output, result.omitted_bytes),
             exit_code=result.exit_code,
         )
+
+    # ------------------------------------------------------------- run_tests command
+
+    def parse_test_command(self, cmd: str) -> list[str]:
+        """Check a planner command and return the pytest arguments it may pass.
+
+        The command must be `python -m pytest`, followed only by allowlisted
+        flags and test paths (optionally with ::node ids) that exist inside
+        the workspace. Raises JailViolation before any process starts.
+        """
+        if len(cmd) > MAX_COMMAND_CHARS:
+            raise JailViolation(f"command is longer than {MAX_COMMAND_CHARS} characters")
+        try:
+            tokens = _split_command(cmd)
+        except ValueError as exc:
+            raise JailViolation(f"command could not be parsed: {exc}") from exc
+        if tuple(tokens[:3]) != TEST_COMMAND_PREFIX:
+            raise JailViolation(
+                "command not in allowlist: only 'python -m pytest [flags] [test paths]' "
+                f"may run, got {cmd!r}"
+            )
+        rest = tokens[3:]
+        for token in rest:
+            if any(char in SHELL_SYNTAX for char in token):
+                raise JailViolation(
+                    f"command not in allowlist: shell syntax in {token!r} is not supported "
+                    "(commands run without a shell)"
+                )
+        args: list[str] = []
+        i = 0
+        while i < len(rest):
+            token = rest[i]
+            if token.startswith("@"):
+                raise JailViolation(f"argument files such as {token!r} are not allowed")
+            if token in PYTEST_FLAGS_WITH_VALUE:
+                value = rest[i + 1] if i + 1 < len(rest) else ""
+                if not value or value.startswith(("-", "@")):
+                    raise JailViolation(f"pytest flag {token} needs a value")
+                args += [token, value]
+                i += 2
+                continue
+            if token.startswith("-"):
+                if token in ALLOWED_PYTEST_FLAGS or any(
+                    form.fullmatch(token) for form in ALLOWED_PYTEST_FLAG_FORMS
+                ):
+                    args.append(token)
+                    i += 1
+                    continue
+                raise JailViolation(
+                    f"pytest flag {token!r} is not allowed; allowed flags: {ALLOWED_FLAGS_HELP}"
+                )
+            path_part, separator, node = token.partition("::")
+            target = self.jailed_path(path_part)
+            if not target.exists():
+                raise JailViolation(f"test path {path_part!r} does not exist in the workspace")
+            args.append(self._display(target) + separator + node)
+            i += 1
+        return args
+
+    def pytest_argv(self, args: list[str], extra: tuple[str, ...] = ()) -> list[str]:
+        """Full argv for a pytest run in the workspace.
+
+        The runtime's own interpreter runs pytest with -P, so the workspace is
+        not on sys.path when pytest is imported and a planted pytest.py cannot
+        shadow it. The cache plugin is disabled, rootdir and confcutdir are
+        pinned to the workspace so no config or conftest.py above it is read,
+        and the workspace root goes on sys.path through pytest's pythonpath
+        setting so task code stays importable.
+        """
+        config = self._workspace_pytest_config()
+        import_roots = [self.workspace]
+        if config is not None:
+            import_roots += self._configured_pythonpath(config)
+        roots = " ".join(shlex.quote(root.as_posix()) for root in import_roots)
+        return [
+            sys.executable,
+            "-P",
+            "-m",
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            "-c",
+            str(config) if config is not None else os.devnull,
+            f"--rootdir={self.workspace}",
+            f"--confcutdir={self.workspace}",
+            "-o",
+            f"pythonpath={roots}",
+            *extra,
+            *args,
+        ]
+
+    def _workspace_pytest_config(self) -> Path | None:
+        """The workspace's own pytest config file, if its root has one."""
+        for name, marker in PYTEST_CONFIG_FILES:
+            candidate = self.workspace / name
+            if not candidate.is_file() or candidate.is_symlink():
+                continue
+            if not marker:
+                return candidate
+            try:
+                if marker in candidate.read_text(encoding="utf-8"):
+                    return candidate
+            except (OSError, UnicodeDecodeError):
+                continue
+        return None
+
+    def _configured_pythonpath(self, config: Path) -> list[Path]:
+        """Entries of the config's own pythonpath setting that stay inside the workspace."""
+        try:
+            text = config.read_text(encoding="utf-8")
+            if config.suffix == ".toml":
+                pytest_table = tomllib.loads(text).get("tool", {}).get("pytest", {})
+                value = pytest_table.get("ini_options", pytest_table).get("pythonpath", [])
+            else:
+                parser = configparser.ConfigParser(interpolation=None)
+                parser.read_string(text)
+                section = "tool:pytest" if config.name == "setup.cfg" else "pytest"
+                value = parser.get(section, "pythonpath", fallback="")
+        except (OSError, UnicodeDecodeError, ValueError, configparser.Error, AttributeError):
+            return []
+        entries = shlex.split(value) if isinstance(value, str) else [str(v) for v in value]
+        roots: list[Path] = []
+        for entry in entries:
+            try:
+                roots.append(self.jailed_path(entry))
+            except PermissionError:
+                continue  # a configured path outside the workspace is ignored
+        return roots
+
+    def _display(self, path: Path) -> str:
+        """Workspace-relative POSIX form of a jailed path ('.' for the root)."""
+        rel = path.relative_to(self.workspace).as_posix()
+        return rel if rel else "."
+
+
+def _split_command(cmd: str) -> list[str]:
+    """Split like a POSIX shell, but keep backslashes literal (Windows paths)."""
+    lexer = shlex.shlex(cmd, posix=True)
+    lexer.whitespace_split = True
+    lexer.escape = ""
+    lexer.commenters = ""
+    return list(lexer)
 
 
 def _tail(text: str, limit: int) -> str:
