@@ -17,6 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -108,7 +109,7 @@ class OpenAICompatProvider:
                     continue
         raise last_error if last_error else ProviderError("request failed")
 
-    def chat_json(self, system: str, user: str) -> tuple[dict, LLMResponse]:
+    def chat_json(self, system: str, user: str) -> tuple[dict[str, Any], LLMResponse]:
         """Chat and parse the reply as a JSON object (tolerates code fences)."""
         resp = self.chat(system, user)
         text = resp.content.strip()

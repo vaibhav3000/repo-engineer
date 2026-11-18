@@ -22,10 +22,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from repo_engineer.agent import AgentRuntime, prepare_workspace  # noqa: E402
-from repo_engineer.benchmark.harness import TASK_DIR, load_tasks  # noqa: E402
-from repo_engineer.planner import LLMPlanner  # noqa: E402
-from repo_engineer.tools import ToolRegistry  # noqa: E402
+from repo_engineer.agent import AgentRuntime, prepare_workspace
+from repo_engineer.benchmark.harness import TASK_DIR, load_tasks
+from repo_engineer.planner import LLMPlanner
+from repo_engineer.tools import ToolRegistry
 
 ROOT = Path(__file__).resolve().parents[1]
 

@@ -65,7 +65,7 @@ class AgentRuntime:
             action = None
             try:
                 action = self.planner.next_action(task, history)
-            except Exception as exc:  # noqa: BLE001 - planner/API failure is recoverable
+            except Exception as exc:
                 state.planner_errors += 1
                 state.errors.append(f"planner error: {type(exc).__name__}: {exc}"[:200])
                 if state.planner_errors >= 3:
@@ -150,7 +150,7 @@ class AgentRuntime:
         return state
 
     def summary(self, state: AgentState) -> dict[str, Any]:
-        out = {
+        out: dict[str, Any] = {
             "task_id": state.task_id,
             "success": state.verified and state.state is State.COMPLETE,
             "final_state": state.state.value,
@@ -160,12 +160,13 @@ class AgentRuntime:
             "files_changed": state.files_changed,
             "errors": state.errors,
         }
-        # LLM planners expose token accounting; deterministic planners do not.
-        if hasattr(self.planner, "total_prompt_tokens"):
-            out["llm_calls"] = self.planner.calls
-            out["llm_prompt_tokens"] = self.planner.total_prompt_tokens
-            out["llm_completion_tokens"] = self.planner.total_completion_tokens
-            out["llm_model"] = self.planner.model
+        # Model-backed planners report usage; deterministic planners return None.
+        usage = self.planner.usage()
+        if usage is not None:
+            out["llm_calls"] = usage.calls
+            out["llm_prompt_tokens"] = usage.prompt_tokens
+            out["llm_completion_tokens"] = usage.completion_tokens
+            out["llm_model"] = usage.model
         return out
 
 

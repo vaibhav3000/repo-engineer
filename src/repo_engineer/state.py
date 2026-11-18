@@ -7,13 +7,14 @@ calls, enforces budgets and decides when the task is verified.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import asdict, dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class State(str, Enum):
+class State(StrEnum):
     INIT = "INIT"
     ANALYZE_REPO = "ANALYZE_REPO"
     PLAN = "PLAN"
@@ -88,7 +89,7 @@ class AgentState:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "AgentState":
+    def from_dict(cls, d: dict[str, Any]) -> AgentState:
         d = dict(d)
         d["state"] = State(d["state"])
         return cls(**d)
@@ -115,7 +116,7 @@ class StateMachine:
         return self.agent_state.replans < self.max_replans
 
 
-def write_trace(state: AgentState, path) -> None:
+def write_trace(state: AgentState, path: str | os.PathLike[str]) -> None:
     """Persist the full execution trace as JSON (one state snapshot at the end)."""
     import json
     from pathlib import Path

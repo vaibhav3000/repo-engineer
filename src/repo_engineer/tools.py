@@ -14,21 +14,22 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Callable
+from typing import Any
 
 from .state import Observation, ToolCall
 
 
-class Permission(str, Enum):
+class Permission(StrEnum):
     READ_ONLY = "READ_ONLY"
     MUTATING = "MUTATING"
     EXECUTION = "EXECUTION"
 
 
-class Policy(str, Enum):
+class Policy(StrEnum):
     AUTO = "AUTO"  # execute without confirmation
     ASK = "ASK"  # require ask_callback approval; deny when headless
     DENY = "DENY"  # never execute
@@ -40,8 +41,8 @@ class ToolSpec:
     description: str
     permission: Permission
     required_args: dict[str, type]
+    run: Callable[..., Any]
     optional_args: dict[str, type] = field(default_factory=dict)
-    run: Callable[..., Any] = None  # type: ignore[assignment]
 
     def validate(self, args: dict[str, Any]) -> str | None:
         """Return an error string when args violate the schema; None when valid."""
@@ -284,7 +285,6 @@ class ToolRegistry:
     def _list_tree(self, max_depth: int = 3) -> str:
         max_depth = min(max_depth, 6)
         lines: list[str] = []
-        base_depth = len(self.workspace.parts)
 
         def walk(directory: Path, depth: int) -> None:
             if depth > max_depth or len(lines) > 400:

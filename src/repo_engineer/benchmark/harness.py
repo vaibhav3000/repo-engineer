@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agent import AgentRuntime, prepare_workspace
-from ..planner import ScriptedPlanner
+from ..planner import Planner, ScriptedPlanner
 from ..tools import ToolRegistry
 
 TASK_DIR = Path(__file__).resolve().parent / "tasks"
@@ -28,7 +28,7 @@ def load_tasks() -> list[dict[str, Any]]:
 
 def run_benchmark(
     runs_root: str | Path,
-    planner: Any = None,
+    planner: Planner | None = None,
     results_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run every task once in an isolated workspace copy; record real outcomes."""

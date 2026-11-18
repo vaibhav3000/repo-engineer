@@ -21,6 +21,7 @@ from __future__ import annotations
 import abc
 import json
 import os
+from dataclasses import dataclass
 from typing import Any
 
 from .llm_provider import OpenAICompatProvider, ProviderError
@@ -57,6 +58,16 @@ class ConfigurationError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class PlannerUsage:
+    """Cumulative provider accounting reported by model-backed planners."""
+
+    model: str
+    calls: int
+    prompt_tokens: int
+    completion_tokens: int
+
+
 class Planner(abc.ABC):
     """Proposes the next action given the task and execution history."""
 
@@ -66,8 +77,12 @@ class Planner(abc.ABC):
     def next_action(self, task: dict[str, Any], history: list[dict[str, Any]]) -> ToolCall | None:
         """Return the next ToolCall, or None to stop (the runtime then verifies)."""
 
-    def observe_replan(self, reason: str, history: list[dict[str, Any]]) -> None:
+    def observe_replan(self, reason: str, history: list[dict[str, Any]]) -> None:  # noqa: B027
         """Optional hook when the runtime asks the planner to replan."""
+
+    def usage(self) -> PlannerUsage | None:
+        """Cumulative model usage, or None for planners that call no model."""
+        return None
 
 
 class ScriptedPlanner(Planner):
@@ -143,6 +158,14 @@ class LLMPlanner(Planner):
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
         self.calls = 0
+
+    def usage(self) -> PlannerUsage:
+        return PlannerUsage(
+            model=self.model,
+            calls=self.calls,
+            prompt_tokens=self.total_prompt_tokens,
+            completion_tokens=self.total_completion_tokens,
+        )
 
     def next_action(self, task: dict[str, Any], history: list[dict[str, Any]]) -> ToolCall | None:
         user = (
