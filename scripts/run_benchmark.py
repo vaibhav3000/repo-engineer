@@ -19,5 +19,7 @@ if __name__ == "__main__":
     print(json.dumps(results["summary"], indent=2))
     for task in results["tasks"]:
         status = "PASS" if task["success"] else "FAIL"
-        print(f"[{status}] {task['task_id']}: steps={task['steps']} "
-              f"replans={task['replans']} failed_tool_calls={task['failed_tool_calls']}")
+        print(
+            f"[{status}] {task['task_id']}: steps={task['steps']} "
+            f"replans={task['replans']} failed_tool_calls={task['failed_tool_calls']}"
+        )

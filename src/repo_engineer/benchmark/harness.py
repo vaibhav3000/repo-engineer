@@ -34,8 +34,7 @@ def run_benchmark(
     """Run every task once in an isolated workspace copy; record real outcomes."""
     runs_root = Path(runs_root)
     runs_root.mkdir(parents=True, exist_ok=True)
-    results: dict[str, Any] = {"environment": {"python_results_root": str(runs_root)},
-                               "tasks": []}
+    results: dict[str, Any] = {"environment": {"python_results_root": str(runs_root)}, "tasks": []}
     all_success = True
     for task in load_tasks():
         workspace = prepare_workspace(Path(task["path"]), runs_root, task["task_id"])
@@ -46,9 +45,7 @@ def run_benchmark(
         elapsed = time.perf_counter() - started
         summary = runtime.summary(state)
         summary["wall_time_s"] = round(elapsed, 2)
-        summary["failed_tool_calls"] = sum(
-            1 for o in state.observations if o.get("ok") is False
-        )
+        summary["failed_tool_calls"] = sum(1 for o in state.observations if o.get("ok") is False)
         results["tasks"].append(summary)
         all_success = all_success and summary["success"]
 

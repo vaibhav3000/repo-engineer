@@ -17,12 +17,12 @@ class State(str, Enum):
     INIT = "INIT"
     ANALYZE_REPO = "ANALYZE_REPO"
     PLAN = "PLAN"
-    ACT = "ACT"                # executing a tool call proposed by the planner
-    OBSERVE = "OBSERVE"        # recording the tool result
-    REPLAN = "REPLAN"          # tests failed or an action was rejected
-    VERIFY = "VERIFY"          # running the verification suite
+    ACT = "ACT"  # executing a tool call proposed by the planner
+    OBSERVE = "OBSERVE"  # recording the tool result
+    REPLAN = "REPLAN"  # tests failed or an action was rejected
+    VERIFY = "VERIFY"  # running the verification suite
     COMPLETE = "COMPLETE"
-    FAILED = "FAILED"          # budget exhausted or unrecoverable error
+    FAILED = "FAILED"  # budget exhausted or unrecoverable error
 
 
 # Legal transitions. Anything else is a programming error, so the machine
@@ -57,7 +57,7 @@ class Observation:
     ok: bool
     output_excerpt: str = ""
     error: str | None = None
-    rejected: bool = False       # True when validation/permissions blocked the call
+    rejected: bool = False  # True when validation/permissions blocked the call
     latency_ms: float = 0.0
 
 

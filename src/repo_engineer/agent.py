@@ -79,8 +79,9 @@ class AgentRuntime:
                 machine.transition(State.ACT)
                 state.steps_used += 1
                 logger.info("step %d: %s %s", state.steps_used, action.tool, action.args)
-                state.actions.append({"step": state.steps_used, "tool": action.tool,
-                                      "args": _jsonable(action.args)})
+                state.actions.append(
+                    {"step": state.steps_used, "tool": action.tool, "args": _jsonable(action.args)}
+                )
                 if action.tool == "apply_edit" or action.tool == "write_file":
                     changed = action.args.get("path")
                     if changed and changed not in state.files_changed:
@@ -93,9 +94,15 @@ class AgentRuntime:
                 observation = self.registry.execute(action)
                 machine.transition(State.OBSERVE)
                 state.observations.append(_observation_dict(observation))
-                history.append({"tool": action.tool, "args": _jsonable(action.args),
-                                "ok": observation.ok, "error": observation.error,
-                                "output": observation.output_excerpt[:400]})
+                history.append(
+                    {
+                        "tool": action.tool,
+                        "args": _jsonable(action.args),
+                        "ok": observation.ok,
+                        "error": observation.error,
+                        "output": observation.output_excerpt[:400],
+                    }
+                )
 
                 if action.tool == "run_tests":
                     passed = observation.ok and "exit=0" in observation.output_excerpt
@@ -121,7 +128,9 @@ class AgentRuntime:
 
             # VERIFY reached: re-run the test suite as final evidence.
             state.steps_used += 1
-            verify = self.registry.execute(ToolCall("run_tests", {"cmd": task.get("verify_cmd", "python -m pytest tests/ -q")}))
+            verify = self.registry.execute(
+                ToolCall("run_tests", {"cmd": task.get("verify_cmd", "python -m pytest tests/ -q")})
+            )
             passed = verify.ok and "exit=0" in verify.output_excerpt
             state.test_results.append({"verify": True, "passed": passed})
             state.verified = passed

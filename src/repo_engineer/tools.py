@@ -29,9 +29,9 @@ class Permission(str, Enum):
 
 
 class Policy(str, Enum):
-    AUTO = "AUTO"    # execute without confirmation
-    ASK = "ASK"      # require ask_callback approval; deny when headless
-    DENY = "DENY"    # never execute
+    AUTO = "AUTO"  # execute without confirmation
+    ASK = "ASK"  # require ask_callback approval; deny when headless
+    DENY = "DENY"  # never execute
 
 
 @dataclass
@@ -100,18 +100,14 @@ class ToolRegistry:
         # on a POSIX host, where it would silently degrade to a workspace-
         # relative name. Reject it rather than guess platform semantics.
         if PureWindowsPath(raw).is_absolute() and os.name != "nt":
-            raise PermissionError(
-                f"path escape rejected: {raw!r} is a Windows absolute path"
-            )
+            raise PermissionError(f"path escape rejected: {raw!r} is a Windows absolute path")
         candidate = Path(raw)
         if candidate.is_absolute():
             resolved = candidate.resolve()
         else:
             resolved = (self.workspace / candidate).resolve()
         if resolved != self.workspace and self.workspace not in resolved.parents:
-            raise PermissionError(
-                f"path escape rejected: {raw!r} resolves outside the workspace"
-            )
+            raise PermissionError(f"path escape rejected: {raw!r} resolves outside the workspace")
         return resolved
 
     def jailed_glob(self, pattern: str) -> None:
@@ -124,65 +120,77 @@ class ToolRegistry:
         win = PureWindowsPath(pattern)
         posix = PurePosixPath(pattern)
         if win.is_absolute() or posix.is_absolute() or ".." in win.parts or ".." in posix.parts:
-            raise PermissionError(
-                f"path escape rejected: glob {pattern!r} leaves the workspace"
-            )
+            raise PermissionError(f"path escape rejected: glob {pattern!r} leaves the workspace")
 
     # ------------------------------------------------------------- registry
 
     def _register_defaults(self) -> None:
-        self._register(ToolSpec(
-            name="list_tree",
-            description="List repository files up to a bounded depth.",
-            permission=Permission.READ_ONLY,
-            required_args={},
-            optional_args={"max_depth": int},
-            run=self._list_tree,
-        ))
-        self._register(ToolSpec(
-            name="search",
-            description="Regex search over text files; returns file:line:text matches.",
-            permission=Permission.READ_ONLY,
-            required_args={"pattern": str},
-            optional_args={"glob": str},
-            run=self._search,
-        ))
-        self._register(ToolSpec(
-            name="read_file",
-            description="Read a text file, optionally a 1-based inclusive line range.",
-            permission=Permission.READ_ONLY,
-            required_args={"path": str},
-            optional_args={"start_line": int, "end_line": int},
-            run=self._read_file,
-        ))
-        self._register(ToolSpec(
-            name="apply_edit",
-            description="Replace exactly one occurrence of old_text with new_text.",
-            permission=Permission.MUTATING,
-            required_args={"path": str, "old_text": str, "new_text": str},
-            run=self._apply_edit,
-        ))
-        self._register(ToolSpec(
-            name="write_file",
-            description="Create a NEW text file (refuses to overwrite existing files).",
-            permission=Permission.MUTATING,
-            required_args={"path": str, "content": str},
-            run=self._write_file,
-        ))
-        self._register(ToolSpec(
-            name="git_diff",
-            description="Unified diff of workspace changes (empty when git is absent).",
-            permission=Permission.READ_ONLY,
-            required_args={},
-            run=self._git_diff,
-        ))
-        self._register(ToolSpec(
-            name="run_tests",
-            description="Run a whitelisted test command inside the workspace.",
-            permission=Permission.EXECUTION,
-            required_args={"cmd": str},
-            run=self._run_tests,
-        ))
+        self._register(
+            ToolSpec(
+                name="list_tree",
+                description="List repository files up to a bounded depth.",
+                permission=Permission.READ_ONLY,
+                required_args={},
+                optional_args={"max_depth": int},
+                run=self._list_tree,
+            )
+        )
+        self._register(
+            ToolSpec(
+                name="search",
+                description="Regex search over text files; returns file:line:text matches.",
+                permission=Permission.READ_ONLY,
+                required_args={"pattern": str},
+                optional_args={"glob": str},
+                run=self._search,
+            )
+        )
+        self._register(
+            ToolSpec(
+                name="read_file",
+                description="Read a text file, optionally a 1-based inclusive line range.",
+                permission=Permission.READ_ONLY,
+                required_args={"path": str},
+                optional_args={"start_line": int, "end_line": int},
+                run=self._read_file,
+            )
+        )
+        self._register(
+            ToolSpec(
+                name="apply_edit",
+                description="Replace exactly one occurrence of old_text with new_text.",
+                permission=Permission.MUTATING,
+                required_args={"path": str, "old_text": str, "new_text": str},
+                run=self._apply_edit,
+            )
+        )
+        self._register(
+            ToolSpec(
+                name="write_file",
+                description="Create a NEW text file (refuses to overwrite existing files).",
+                permission=Permission.MUTATING,
+                required_args={"path": str, "content": str},
+                run=self._write_file,
+            )
+        )
+        self._register(
+            ToolSpec(
+                name="git_diff",
+                description="Unified diff of workspace changes (empty when git is absent).",
+                permission=Permission.READ_ONLY,
+                required_args={},
+                run=self._git_diff,
+            )
+        )
+        self._register(
+            ToolSpec(
+                name="run_tests",
+                description="Run a whitelisted test command inside the workspace.",
+                permission=Permission.EXECUTION,
+                required_args={"cmd": str},
+                run=self._run_tests,
+            )
+        )
 
     def _register(self, spec: ToolSpec) -> None:
         self.specs[spec.name] = spec
@@ -196,41 +204,60 @@ class ToolRegistry:
         started = _time.perf_counter()
         spec = self.specs.get(call.tool)
         if spec is None:
-            return Observation(tool=call.tool, ok=False, rejected=True,
-                               error=f"unknown tool '{call.tool}'")
+            return Observation(
+                tool=call.tool, ok=False, rejected=True, error=f"unknown tool '{call.tool}'"
+            )
         schema_error = spec.validate(call.args)
         if schema_error:
             return Observation(tool=call.tool, ok=False, rejected=True, error=schema_error)
 
         policy = self.policy[spec.permission]
         if policy is Policy.DENY:
-            return Observation(tool=call.tool, ok=False, rejected=True,
-                               error=f"policy denies {spec.permission.value} tools")
+            return Observation(
+                tool=call.tool,
+                ok=False,
+                rejected=True,
+                error=f"policy denies {spec.permission.value} tools",
+            )
         if policy is Policy.ASK:
             allowed = bool(self.ask_callback and self.ask_callback(spec, call.args))
             if not allowed:
-                return Observation(tool=call.tool, ok=False, rejected=True,
-                                   error="policy ASK: no approval granted (headless denies)")
+                return Observation(
+                    tool=call.tool,
+                    ok=False,
+                    rejected=True,
+                    error="policy ASK: no approval granted (headless denies)",
+                )
 
         try:
             output = spec.run(**call.args)
             return Observation(
-                tool=call.tool, ok=True,
+                tool=call.tool,
+                ok=True,
                 output_excerpt=str(output)[:4000],
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
         except PermissionError as exc:
-            return Observation(tool=call.tool, ok=False, rejected=True,
-                               error=str(exc),
-                               latency_ms=(_time.perf_counter() - started) * 1000)
+            return Observation(
+                tool=call.tool,
+                ok=False,
+                rejected=True,
+                error=str(exc),
+                latency_ms=(_time.perf_counter() - started) * 1000,
+            )
         except FileNotFoundError as exc:
-            return Observation(tool=call.tool, ok=False, error=str(exc),
-                               latency_ms=(_time.perf_counter() - started) * 1000)
+            return Observation(
+                tool=call.tool,
+                ok=False,
+                error=str(exc),
+                latency_ms=(_time.perf_counter() - started) * 1000,
+            )
         except subprocess.TimeoutExpired as exc:
             # Execution-class failure with a real duration: an Observation,
             # never a crash of the runtime loop.
             return Observation(
-                tool=call.tool, ok=False,
+                tool=call.tool,
+                ok=False,
                 error=f"command timed out after {exc.timeout:.0f}s",
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
@@ -238,11 +265,19 @@ class ToolRegistry:
             # Remaining filesystem failures (IsADirectoryError,
             # NotADirectoryError, WinError 183, disk-full, ...). PermissionError
             # and FileNotFoundError are caught above.
-            return Observation(tool=call.tool, ok=False, error=str(exc),
-                               latency_ms=(_time.perf_counter() - started) * 1000)
+            return Observation(
+                tool=call.tool,
+                ok=False,
+                error=str(exc),
+                latency_ms=(_time.perf_counter() - started) * 1000,
+            )
         except (ValueError, RuntimeError) as exc:
-            return Observation(tool=call.tool, ok=False, error=str(exc),
-                               latency_ms=(_time.perf_counter() - started) * 1000)
+            return Observation(
+                tool=call.tool,
+                ok=False,
+                error=str(exc),
+                latency_ms=(_time.perf_counter() - started) * 1000,
+            )
 
     # ------------------------------------------------------------- tools
 
@@ -299,14 +334,16 @@ class ToolRegistry:
                         return "\n".join(matches) + "\n(truncated at 100 matches)"
         return "\n".join(matches) or "(no matches)"
 
-    def _read_file(self, path: str, start_line: int | None = None, end_line: int | None = None) -> str:
+    def _read_file(
+        self, path: str, start_line: int | None = None, end_line: int | None = None
+    ) -> str:
         resolved = self.jailed_path(path)
         if not resolved.is_file():
             raise FileNotFoundError(f"not a file: {path}")
         lines = resolved.read_text(encoding="utf-8").splitlines()
         start = max((start_line or 1) - 1, 0)
         end = min(end_line or len(lines), len(lines))
-        numbered = [f"{i+1:4d}: {lines[i]}" for i in range(start, end)]
+        numbered = [f"{i + 1:4d}: {lines[i]}" for i in range(start, end)]
         return "\n".join(numbered) or "(empty file)"
 
     def _apply_edit(self, path: str, old_text: str, new_text: str) -> str:
@@ -328,9 +365,7 @@ class ToolRegistry:
     def _write_file(self, path: str, content: str) -> str:
         resolved = self.jailed_path(path)
         if resolved.exists():
-            raise ValueError(
-                f"write_file refuses to overwrite existing {path}; use apply_edit"
-            )
+            raise ValueError(f"write_file refuses to overwrite existing {path}; use apply_edit")
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
         return f"created {path} ({len(content)} chars)"
@@ -338,8 +373,11 @@ class ToolRegistry:
     def _git_diff(self) -> str:
         try:
             proc = subprocess.run(
-                ["git", "diff", "--no-color"], cwd=self.workspace,
-                capture_output=True, text=True, timeout=30,
+                ["git", "diff", "--no-color"],
+                cwd=self.workspace,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             return proc.stdout or "(no changes)"
         except (OSError, subprocess.TimeoutExpired):
@@ -352,8 +390,12 @@ class ToolRegistry:
                 f"command not in allowlist {list(self.test_command_allowlist)}: {cmd!r}"
             )
         proc = subprocess.run(
-            cmd.split(), cwd=self.workspace, capture_output=True, text=True,
-            timeout=self.exec_timeout_s, shell=False,
+            cmd.split(),
+            cwd=self.workspace,
+            capture_output=True,
+            text=True,
+            timeout=self.exec_timeout_s,
+            shell=False,
         )
         tail = (proc.stdout + proc.stderr)[-4000:]
         return f"exit={proc.returncode}\n{tail}"

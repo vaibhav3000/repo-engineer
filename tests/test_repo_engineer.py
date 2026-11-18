@@ -19,7 +19,9 @@ TASKS = Path(__file__).resolve().parents[1] / "src" / "repo_engineer" / "benchma
 def fresh_registry(tmp_path: Path) -> ToolRegistry:
     (tmp_path / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
     (tmp_path / "tests").mkdir(exist_ok=True)
-    (tmp_path / "tests" / "test_app.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_app.py").write_text(
+        "def test_ok():\n    assert True\n", encoding="utf-8"
+    )
     return ToolRegistry(tmp_path)
 
 
@@ -37,6 +39,7 @@ def test_illegal_transition_raises():
 
 def _mk_state():
     from repo_engineer.state import AgentState
+
     return AgentState(task_id="t", task_description="", workspace=".")
 
 
@@ -100,11 +103,14 @@ def test_search_glob_inside_workspace(tmp_path):
 
 def test_apply_edit_ambiguity_and_missing(tmp_path):
     reg = fresh_registry(tmp_path)
-    obs = reg.execute(ToolCall("apply_edit",
-                               {"path": "app.py", "old_text": "nope", "new_text": "x"}))
+    obs = reg.execute(
+        ToolCall("apply_edit", {"path": "app.py", "old_text": "nope", "new_text": "x"})
+    )
     assert not obs.rejected and not obs.ok and "not found" in obs.error
     (tmp_path / "dup.py").write_text("A = 1  # A = 1\n", encoding="utf-8")
-    obs = reg.execute(ToolCall("apply_edit", {"path": "dup.py", "old_text": "A = 1", "new_text": "B"}))
+    obs = reg.execute(
+        ToolCall("apply_edit", {"path": "dup.py", "old_text": "A = 1", "new_text": "B"})
+    )
     assert not obs.ok and "2 times" in obs.error
 
 
@@ -158,10 +164,14 @@ def test_write_file_os_error_returns_observation(tmp_path):
 def test_ask_policy_requires_callback(tmp_path):
     reg = fresh_registry(tmp_path)
     reg.policy[Permission.MUTATING] = Policy.ASK
-    obs = reg.execute(ToolCall("apply_edit", {"path": "app.py", "old_text": "VALUE = 1", "new_text": "VALUE = 2"}))
+    obs = reg.execute(
+        ToolCall("apply_edit", {"path": "app.py", "old_text": "VALUE = 1", "new_text": "VALUE = 2"})
+    )
     assert obs.rejected and "no approval" in obs.error
     reg.ask_callback = lambda spec, args: True
-    obs = reg.execute(ToolCall("apply_edit", {"path": "app.py", "old_text": "VALUE = 1", "new_text": "VALUE = 2"}))
+    obs = reg.execute(
+        ToolCall("apply_edit", {"path": "app.py", "old_text": "VALUE = 1", "new_text": "VALUE = 2"})
+    )
     assert obs.ok and "VALUE = 2" in (tmp_path / "app.py").read_text(encoding="utf-8")
 
 
@@ -169,9 +179,14 @@ def test_ask_policy_requires_callback(tmp_path):
 
 
 def test_llm_planner_requires_config(monkeypatch):
-    for var in ("REPO_ENGINEER_LLM_PROVIDER", "REPO_ENGINEER_LLM_MODEL",
-                "REPO_ENGINEER_LLM_BASE_URL", "REPO_ENGINEER_LLM_KEY_ENV",
-                "GEMINI_API_KEY", "OPENAI_API_KEY"):
+    for var in (
+        "REPO_ENGINEER_LLM_PROVIDER",
+        "REPO_ENGINEER_LLM_MODEL",
+        "REPO_ENGINEER_LLM_BASE_URL",
+        "REPO_ENGINEER_LLM_KEY_ENV",
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+    ):
         monkeypatch.delenv(var, raising=False)
     from repo_engineer.planner import LLMPlanner
 
@@ -221,11 +236,16 @@ def test_budget_exhaustion_fails(tmp_path):
 def test_chat_json_parses_fenced_reply(monkeypatch):
     from repo_engineer.llm_provider import LLMResponse, OpenAICompatProvider
 
-    provider = OpenAICompatProvider(base_url="http://localhost:9", api_key_env="UNUSED",
-                                    model="test-model")
-    resp = LLMResponse(content='```json\n{"tool": "search", "args": {}}\n```',
-                       prompt_tokens=1, completion_tokens=1, model="test-model",
-                       finish_reason="stop")
+    provider = OpenAICompatProvider(
+        base_url="http://localhost:9", api_key_env="UNUSED", model="test-model"
+    )
+    resp = LLMResponse(
+        content='```json\n{"tool": "search", "args": {}}\n```',
+        prompt_tokens=1,
+        completion_tokens=1,
+        model="test-model",
+        finish_reason="stop",
+    )
     monkeypatch.setattr(provider, "chat", lambda system, user, retries=2: resp)
     data, out = provider.chat_json("system", "user")
     assert data == {"tool": "search", "args": {}}
@@ -237,10 +257,16 @@ def test_chat_json_raises_on_non_json(monkeypatch):
 
     from repo_engineer.llm_provider import LLMResponse, OpenAICompatProvider, ProviderError
 
-    provider = OpenAICompatProvider(base_url="http://localhost:9", api_key_env="UNUSED",
-                                    model="test-model")
-    resp = LLMResponse(content="I cannot comply, good sir.", prompt_tokens=1,
-                       completion_tokens=1, model="test-model", finish_reason="stop")
+    provider = OpenAICompatProvider(
+        base_url="http://localhost:9", api_key_env="UNUSED", model="test-model"
+    )
+    resp = LLMResponse(
+        content="I cannot comply, good sir.",
+        prompt_tokens=1,
+        completion_tokens=1,
+        model="test-model",
+        finish_reason="stop",
+    )
     monkeypatch.setattr(provider, "chat", lambda system, user, retries=2: resp)
     with _pytest.raises(ProviderError):
         provider.chat_json("system", "user")
@@ -253,10 +279,14 @@ def test_runtime_continues_after_ask_denial(tmp_path):
 
     reg = fresh_registry(tmp_path)
     reg.policy[Permission.MUTATING] = Policy.ASK  # no ask_callback -> denied
-    planner = RecordedPlanner([
-        ToolCall("apply_edit", {"path": "app.py", "old_text": "VALUE = 1", "new_text": "VALUE = 2"}),
-        None,
-    ])
+    planner = RecordedPlanner(
+        [
+            ToolCall(
+                "apply_edit", {"path": "app.py", "old_text": "VALUE = 1", "new_text": "VALUE = 2"}
+            ),
+            None,
+        ]
+    )
     runtime = AgentRuntime(reg, planner)
     task = json.loads((TASKS / "task_01_fix_off_by_one" / "task.json").read_text(encoding="utf-8"))
     state = runtime.run_task(task, trace_path=tmp_path / "trace.json")

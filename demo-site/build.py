@@ -7,6 +7,7 @@ Renders exactly the committed deterministic benchmark (4/4), the recorded
 live-LLM run (2/2), the per-task execution traces, and the real ToolRegistry
 rejection messages captured in results/jail_attack_evidence.json.
 """
+
 import json
 from pathlib import Path
 

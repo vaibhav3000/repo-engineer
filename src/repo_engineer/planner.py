@@ -138,9 +138,7 @@ class LLMPlanner(Planner):
                 f"environment variable {key_env} is not set; the LLM planner has "
                 "no credentials. Set it or use the deterministic ScriptedPlanner."
             )
-        self.provider = OpenAICompatProvider(
-            base_url=base_url, api_key_env=key_env, model=model
-        )
+        self.provider = OpenAICompatProvider(base_url=base_url, api_key_env=key_env, model=model)
         self.model = model
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
@@ -193,61 +191,79 @@ RECIPES: dict[str, list[ToolCall]] = {
     "task_01_fix_off_by_one": [
         ToolCall("search", {"pattern": "range\\(len\\(items\\) - 1\\)"}),
         ToolCall("read_file", {"path": "shop/cart.py"}),
-        ToolCall("apply_edit", {
-            "path": "shop/cart.py",
-            "old_text": "for i in range(len(items) - 1):",
-            "new_text": "for i in range(len(items)):",
-        }),
+        ToolCall(
+            "apply_edit",
+            {
+                "path": "shop/cart.py",
+                "old_text": "for i in range(len(items) - 1):",
+                "new_text": "for i in range(len(items)):",
+            },
+        ),
         ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
     ],
     # task_02: wrong constant in benchmark/tasks/task_02_failing_test/billing/invoice.py
     "task_02_failing_test": [
         ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
         ToolCall("search", {"pattern": "TAX_RATE"}),
-        ToolCall("apply_edit", {
-            "path": "billing/invoice.py",
-            "old_text": "TAX_RATE = 0.20",
-            "new_text": "TAX_RATE = 0.25",
-        }),
+        ToolCall(
+            "apply_edit",
+            {
+                "path": "billing/invoice.py",
+                "old_text": "TAX_RATE = 0.20",
+                "new_text": "TAX_RATE = 0.25",
+            },
+        ),
         ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
     ],
     # task_03: function has no test coverage; add a test file for it
     "task_03_add_missing_test": [
         ToolCall("search", {"pattern": "def slugify"}),
         ToolCall("read_file", {"path": "web/slug.py"}),
-        ToolCall("write_file", {
-            "path": "tests/test_slug.py",
-            "content": (
-                "from web.slug import slugify\n\n\n"
-                "def test_basic():\n"
-                "    assert slugify(\"Hello World\") == \"hello-world\"\n\n"
-                "def test_strips_punctuation():\n"
-                "    assert slugify(\"A B & C!\") == \"a-b-c\"\n\n"
-                "def test_collapses_spaces():\n"
-                "    assert slugify(\"  many   spaces \") == \"many-spaces\"\n"
-            ),
-        }),
+        ToolCall(
+            "write_file",
+            {
+                "path": "tests/test_slug.py",
+                "content": (
+                    "from web.slug import slugify\n\n\n"
+                    "def test_basic():\n"
+                    '    assert slugify("Hello World") == "hello-world"\n\n'
+                    "def test_strips_punctuation():\n"
+                    '    assert slugify("A B & C!") == "a-b-c"\n\n'
+                    "def test_collapses_spaces():\n"
+                    '    assert slugify("  many   spaces ") == "many-spaces"\n'
+                ),
+            },
+        ),
         ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
     ],
     # task_04: rename compute_total -> calculate_total across call sites
     "task_04_constrained_refactor": [
         ToolCall("search", {"pattern": "compute_total"}),
-        ToolCall("apply_edit", {
-            "path": "orders/pricing.py",
-            "old_text": "def compute_total(",
-            "new_text": "def calculate_total(",
-        }),
+        ToolCall(
+            "apply_edit",
+            {
+                "path": "orders/pricing.py",
+                "old_text": "def compute_total(",
+                "new_text": "def calculate_total(",
+            },
+        ),
         ToolCall("search", {"pattern": "compute_total"}),
-        ToolCall("apply_edit", {
-            "path": "orders/service.py",
-            "old_text": "from orders.pricing import compute_total",
-            "new_text": "from orders.pricing import calculate_total",
-        }),
-        ToolCall("apply_edit", {
-            "path": "orders/service.py",
-            "old_text": "compute_total(",
-            "new_text": "calculate_total(",
-        }),
+        ToolCall(
+            "apply_edit",
+            {
+                "path": "orders/service.py",
+                "old_text": "from orders.pricing import compute_total",
+                "new_text": "from orders.pricing import calculate_total",
+            },
+        ),
+        ToolCall(
+            "apply_edit",
+            {
+                "path": "orders/service.py",
+                "old_text": "compute_total(",
+                "new_text": "calculate_total(",
+            },
+        ),
         ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
     ],
 }

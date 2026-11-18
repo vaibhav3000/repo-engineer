@@ -61,9 +61,12 @@ def main() -> None:
         summary["failed_tool_calls"] = sum(1 for o in state.observations if o.get("ok") is False)
         results["tasks"].append(summary)
         all_success = all_success and summary["success"]
-        print(f"[{'PASS' if summary['success'] else 'FAIL'}] {task_id}: "
-              f"steps={summary['steps']} replans={summary['replans']} "
-              f"llm_calls={summary.get('llm_calls')}", flush=True)
+        print(
+            f"[{'PASS' if summary['success'] else 'FAIL'}] {task_id}: "
+            f"steps={summary['steps']} replans={summary['replans']} "
+            f"llm_calls={summary.get('llm_calls')}",
+            flush=True,
+        )
 
     n_success = sum(1 for t in results["tasks"] if t["success"])
     results["summary"] = {
