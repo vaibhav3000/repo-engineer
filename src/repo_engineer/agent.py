@@ -118,7 +118,10 @@ class AgentRuntime:
                         machine.transition(State.PLAN)
                         continue
                     else:
+                        # OBSERVE has no edge to FAILED: the run ends through
+                        # REPLAN, which finds no budget left.
                         state.errors.append("tests failed and replan budget exhausted")
+                        machine.transition(State.REPLAN)
                         machine.transition(State.FAILED)
                         break
                 else:
