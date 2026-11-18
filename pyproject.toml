@@ -7,15 +7,39 @@ name = "repo-engineer"
 version = "1.0.0"
 description = "Autonomous Repository Engineer: a verified tool-using agent runtime with a deterministic state machine and a reproducible SWE benchmark harness"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest>=9.2", "ruff==0.17.5", "pyright==1.1.414"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+# The benchmark task repos are intentionally buggy fixtures; the scripted
+# recipes match their exact text, so formatters and linters must not touch them.
+extend-exclude = ["src/repo_engineer/benchmark/tasks"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "PIE", "RUF"]
+ignore = ["E501"]
+
+[tool.pyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
+include = ["src", "tests", "scripts", "demo-site"]
+exclude = [
+    "src/repo_engineer/benchmark/tasks",
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+]
