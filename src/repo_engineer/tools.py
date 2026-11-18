@@ -22,9 +22,10 @@ import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from typing import Any
 
+from .jail import JailViolation, path_components
 from .process import child_env, run_bounded
 from .redaction import Redactor
 from .state import Observation, ToolCall
@@ -74,6 +75,8 @@ ALLOWED_PYTEST_FLAG_FORMS = (
     re.compile(r"--capture=(no|sys|fd|tee-sys)"),
 )
 PYTEST_FLAGS_WITH_VALUE = frozenset({"-k", "-m"})
+# Paths a single search may examine before it stops.
+MAX_SEARCH_CANDIDATES = 20_000
 SHELL_SYNTAX = frozenset(";|&<>`$\n\r")
 ALLOWED_FLAGS_HELP = (
     "-q, -v, -x, -s, -l, -r<chars>, --tb=<style>, --maxfail=<n>, --capture=<method>, "
@@ -89,10 +92,6 @@ PYTEST_CONFIG_FILES = (
     ("tox.ini", "[pytest]"),
     ("setup.cfg", "[tool:pytest]"),
 )
-
-
-class JailViolation(PermissionError):
-    """A call the jail or the run_tests command check refused; reported as rejected."""
 
 
 @dataclass(frozen=True)
@@ -121,6 +120,10 @@ class ToolSpec:
     required_args: dict[str, type]
     run: Callable[..., Any]
     optional_args: dict[str, type] = field(default_factory=dict)
+    # Arguments that name workspace paths or globs. execute() jails them
+    # before the tool runs, so a tool cannot forget to.
+    path_args: tuple[str, ...] = ()
+    glob_args: tuple[str, ...] = ()
 
     def validate(self, args: dict[str, Any]) -> str | None:
         """Return an error string when args violate the schema; None when valid."""
@@ -167,34 +170,31 @@ class ToolRegistry:
     # ------------------------------------------------------------- jail
 
     def jailed_path(self, raw: str) -> Path:
-        """Resolve raw inside the workspace; raise PermissionError on escape."""
-        if not isinstance(raw, str) or not raw:
-            raise PermissionError("path must be a non-empty string")
-        # A Windows-absolute path (drive letter) cannot be resolved faithfully
-        # on a POSIX host, where it would silently degrade to a workspace-
-        # relative name. Reject it rather than guess platform semantics.
-        if PureWindowsPath(raw).is_absolute() and os.name != "nt":
-            raise PermissionError(f"path escape rejected: {raw!r} is a Windows absolute path")
-        candidate = Path(raw)
-        if candidate.is_absolute():
-            resolved = candidate.resolve()
-        else:
-            resolved = (self.workspace / candidate).resolve()
-        if resolved != self.workspace and self.workspace not in resolved.parents:
-            raise PermissionError(f"path escape rejected: {raw!r} resolves outside the workspace")
-        return resolved
+        """Map an agent path to a real path inside the workspace.
 
-    def jailed_glob(self, pattern: str) -> None:
-        """Reject glob patterns that could scope the search outside the
-        workspace: absolute paths, drive letters, .. components, or Windows
-        backslash separators. Checked under both path dialects so a pattern
-        cannot slip through on the 'other' platform's semantics."""
-        if not isinstance(pattern, str) or not pattern:
-            raise PermissionError("glob must be a non-empty string")
-        win = PureWindowsPath(pattern)
-        posix = PurePosixPath(pattern)
-        if win.is_absolute() or posix.is_absolute() or ".." in win.parts or ".." in posix.parts:
-            raise PermissionError(f"path escape rejected: glob {pattern!r} leaves the workspace")
+        The text is validated lexically first (see jail.py), so absolute, UNC,
+        drive, device and stream paths are refused without touching the
+        filesystem. The target must then be exactly the workspace join: a
+        symbolic link, junction or other alias anywhere on the way is refused.
+        Raises JailViolation.
+        """
+        target = self.workspace.joinpath(*path_components(raw))
+        if not self._is_direct(target):
+            raise JailViolation(
+                f"path rejected: {raw!r} goes through a symbolic link, junction or other alias"
+            )
+        return target
+
+    def jailed_glob(self, pattern: str) -> str:
+        """Validate a search glob with the same lexical rules; return it normalised."""
+        parts = path_components(pattern, glob=True)
+        if not parts:
+            raise JailViolation(f"glob {pattern!r} matches nothing")
+        return "/".join(parts)
+
+    def _is_direct(self, path: Path) -> bool:
+        """True when path's real location is the path itself (no link on the way)."""
+        return os.path.normcase(os.path.realpath(path)) == os.path.normcase(str(path))
 
     # ------------------------------------------------------------- registry
 
@@ -216,6 +216,7 @@ class ToolRegistry:
                 permission=Permission.READ_ONLY,
                 required_args={"pattern": str},
                 optional_args={"glob": str},
+                glob_args=("glob",),
                 run=self._search,
             )
         )
@@ -226,6 +227,7 @@ class ToolRegistry:
                 permission=Permission.READ_ONLY,
                 required_args={"path": str},
                 optional_args={"start_line": int, "end_line": int},
+                path_args=("path",),
                 run=self._read_file,
             )
         )
@@ -235,6 +237,7 @@ class ToolRegistry:
                 description="Replace exactly one occurrence of old_text with new_text.",
                 permission=Permission.MUTATING,
                 required_args={"path": str, "old_text": str, "new_text": str},
+                path_args=("path",),
                 run=self._apply_edit,
             )
         )
@@ -244,6 +247,7 @@ class ToolRegistry:
                 description="Create a NEW text file (refuses to overwrite existing files).",
                 permission=Permission.MUTATING,
                 required_args={"path": str, "content": str},
+                path_args=("path",),
                 run=self._write_file,
             )
         )
@@ -300,7 +304,7 @@ class ToolRegistry:
             )
 
         try:
-            output = spec.run(**call.args)
+            output = spec.run(**self._jail_arguments(spec, call.args))
             if isinstance(output, CommandResult):
                 prefix = f"exit={output.exit_code}\n"
                 return Observation(
@@ -361,6 +365,17 @@ class ToolRegistry:
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
 
+    def _jail_arguments(self, spec: ToolSpec, args: dict[str, Any]) -> dict[str, Any]:
+        """Replace path and glob arguments with their jailed forms (or raise)."""
+        jailed = dict(args)
+        for name in spec.path_args:
+            if name in jailed:
+                jailed[name] = self.jailed_path(jailed[name])
+        for name in spec.glob_args:
+            if name in jailed:
+                jailed[name] = self.jailed_glob(jailed[name])
+        return jailed
+
     def _ask_approval(self, spec: ToolSpec, args: dict[str, Any]) -> str | None:
         """Ask the approver; return None when approved, else the denial reason.
 
@@ -391,37 +406,29 @@ class ToolRegistry:
             except OSError:
                 return
             for entry in entries:
-                if entry.name.startswith("."):
+                # Hidden entries (.git included) and links are never listed or entered.
+                if entry.name.startswith(".") or not self._is_direct(entry):
                     continue
-                rel = entry.relative_to(self.workspace)
-                lines.append(("[dir]  " if entry.is_dir() else "       ") + str(rel))
-                if entry.is_dir():
+                is_dir = entry.is_dir()
+                lines.append(("[dir]  " if is_dir else "       ") + self._display(entry))
+                if is_dir:
                     walk(entry, depth + 1)
 
         walk(self.workspace, 1)
         return "\n".join(lines) or "(empty workspace)"
 
     def _search(self, pattern: str, glob: str = "**/*.py") -> str:
-        self.jailed_glob(glob)
         try:
             regex = re.compile(pattern, re.IGNORECASE)
         except re.error as exc:
             raise ValueError(f"invalid regex: {exc}") from exc
         matches: list[str] = []
-        for path in sorted(self.workspace.glob(glob)):
-            if not path.is_file():
-                continue
+        for path in sorted(self._search_candidates(glob)):
             try:
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
-            try:
-                rel = path.relative_to(self.workspace)
-            except ValueError as exc:
-                # Belt and braces: jailed_glob should make this unreachable.
-                raise PermissionError(
-                    f"path escape rejected: {str(path)!r} leaves the workspace"
-                ) from exc
+            rel = self._display(path)
             for line_no, line in enumerate(text.splitlines(), 1):
                 if regex.search(line):
                     matches.append(f"{rel}:{line_no}:{line.strip()[:200]}")
@@ -429,41 +436,58 @@ class ToolRegistry:
                         return "\n".join(matches) + "\n(truncated at 100 matches)"
         return "\n".join(matches) or "(no matches)"
 
+    def _search_candidates(self, glob: str) -> list[Path]:
+        """Regular files matching glob that are really inside the workspace.
+
+        Matches reached through a link or junction, and anything under .git,
+        are skipped. Examining stops after MAX_SEARCH_CANDIDATES paths so a
+        link to a huge tree cannot stall the runtime.
+        """
+        files: list[Path] = []
+        for examined, path in enumerate(self.workspace.glob(glob), 1):
+            if examined > MAX_SEARCH_CANDIDATES:
+                break
+            rel_parts = path.relative_to(self.workspace).parts
+            if any(part.lower() == ".git" for part in rel_parts):
+                continue
+            if path.is_file() and self._is_direct(path):
+                files.append(path)
+        return files
+
     def _read_file(
-        self, path: str, start_line: int | None = None, end_line: int | None = None
+        self, path: Path, start_line: int | None = None, end_line: int | None = None
     ) -> str:
-        resolved = self.jailed_path(path)
-        if not resolved.is_file():
-            raise FileNotFoundError(f"not a file: {path}")
-        lines = resolved.read_text(encoding="utf-8").splitlines()
+        if not path.is_file():
+            raise FileNotFoundError(f"not a file: {self._display(path)}")
+        lines = path.read_text(encoding="utf-8").splitlines()
         start = max((start_line or 1) - 1, 0)
         end = min(end_line or len(lines), len(lines))
         numbered = [f"{i + 1:4d}: {lines[i]}" for i in range(start, end)]
         return "\n".join(numbered) or "(empty file)"
 
-    def _apply_edit(self, path: str, old_text: str, new_text: str) -> str:
-        resolved = self.jailed_path(path)
-        if not resolved.is_file():
-            raise FileNotFoundError(f"not a file: {path}")
-        text = resolved.read_text(encoding="utf-8")
+    def _apply_edit(self, path: Path, old_text: str, new_text: str) -> str:
+        shown = self._display(path)
+        if not path.is_file():
+            raise FileNotFoundError(f"not a file: {shown}")
+        text = path.read_text(encoding="utf-8")
         occurrences = text.count(old_text)
         if occurrences == 0:
-            raise ValueError(f"apply_edit: old_text not found in {path}")
+            raise ValueError(f"apply_edit: old_text not found in {shown}")
         if occurrences > 1:
             raise ValueError(
-                f"apply_edit: old_text matches {occurrences} times in {path}; "
+                f"apply_edit: old_text matches {occurrences} times in {shown}; "
                 "edits must be unambiguous"
             )
-        resolved.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
-        return f"edited {path}: 1 replacement"
+        path.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+        return f"edited {shown}: 1 replacement"
 
-    def _write_file(self, path: str, content: str) -> str:
-        resolved = self.jailed_path(path)
-        if resolved.exists():
-            raise ValueError(f"write_file refuses to overwrite existing {path}; use apply_edit")
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
-        return f"created {path} ({len(content)} chars)"
+    def _write_file(self, path: Path, content: str) -> str:
+        shown = self._display(path)
+        if path.exists():
+            raise ValueError(f"write_file refuses to overwrite existing {shown}; use apply_edit")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return f"created {shown} ({len(content)} chars)"
 
     def _git_diff(self) -> str:
         try:
