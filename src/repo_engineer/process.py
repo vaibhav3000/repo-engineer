@@ -76,11 +76,6 @@ def child_env(source: Mapping[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-def child_env_passthrough_all() -> dict[str, str]:
-    """The runtime's full environment (used until the allowlist is enforced)."""
-    return dict(os.environ)
-
-
 @dataclass(frozen=True)
 class ProcessResult:
     exit_code: int | None  # None when the run was killed at the deadline

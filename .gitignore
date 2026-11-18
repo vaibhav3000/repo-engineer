@@ -12,3 +12,8 @@ Thumbs.db
 
 # demo-site e2e
 node_modules/
+
+# local secrets: never commit provider keys
+.env
+.env.*
+!.env.example

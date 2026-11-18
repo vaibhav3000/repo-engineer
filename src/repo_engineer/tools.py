@@ -25,7 +25,8 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
-from .process import child_env_passthrough_all, run_bounded
+from .process import child_env, run_bounded
+from .redaction import Redactor
 from .state import Observation, ToolCall
 
 
@@ -159,6 +160,7 @@ class ToolRegistry:
         self.policy: dict[Permission, Policy] = {**DEFAULT_POLICY, **(policy or {})}
         self.ask_callback = ask_callback
         self.exec_timeout_s = exec_timeout_s
+        self.redact = Redactor(self.workspace)
         self.specs: dict[str, ToolSpec] = {}
         self._register_defaults()
 
@@ -304,14 +306,15 @@ class ToolRegistry:
                 return Observation(
                     tool=call.tool,
                     ok=True,
-                    output_excerpt=prefix + _tail(output.output, OUTPUT_LIMIT - len(prefix)),
+                    output_excerpt=prefix
+                    + _tail(self.redact(output.output), OUTPUT_LIMIT - len(prefix)),
                     exit_code=output.exit_code,
                     latency_ms=(_time.perf_counter() - started) * 1000,
                 )
             return Observation(
                 tool=call.tool,
                 ok=True,
-                output_excerpt=str(output)[:OUTPUT_LIMIT],
+                output_excerpt=self.redact(str(output))[:OUTPUT_LIMIT],
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
         except PermissionError as exc:
@@ -319,14 +322,14 @@ class ToolRegistry:
                 tool=call.tool,
                 ok=False,
                 rejected=True,
-                error=str(exc),
+                error=self.redact(str(exc)),
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
         except FileNotFoundError as exc:
             return Observation(
                 tool=call.tool,
                 ok=False,
-                error=str(exc),
+                error=self.redact(str(exc)),
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
         except subprocess.TimeoutExpired as exc:
@@ -336,7 +339,7 @@ class ToolRegistry:
             return Observation(
                 tool=call.tool,
                 ok=False,
-                output_excerpt=_tail(partial, OUTPUT_LIMIT),
+                output_excerpt=_tail(self.redact(partial), OUTPUT_LIMIT),
                 error=f"command timed out after {exc.timeout:.0f}s; the process tree was killed",
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
@@ -347,14 +350,14 @@ class ToolRegistry:
             return Observation(
                 tool=call.tool,
                 ok=False,
-                error=str(exc),
+                error=self.redact(str(exc)),
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
         except (ValueError, RuntimeError) as exc:
             return Observation(
                 tool=call.tool,
                 ok=False,
-                error=str(exc),
+                error=self.redact(str(exc)),
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
 
@@ -480,7 +483,7 @@ class ToolRegistry:
         result = run_bounded(
             self.pytest_argv(args),
             cwd=self.workspace,
-            env=child_env_passthrough_all(),
+            env=child_env(),
             timeout_s=self.exec_timeout_s,
         )
         if result.timed_out or result.exit_code is None:
