@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 import shutil
 from pathlib import Path
 
@@ -33,3 +35,41 @@ def test_copies_skip_bytecode_caches(tmp_path: Path) -> None:
     workspace = prepare_workspace(make_source(tmp_path), tmp_path / "runs", "task")
     assert (workspace / "pkg" / "mod.py").exists()
     assert not (workspace / "pkg" / "__pycache__").exists()
+
+
+def test_links_in_the_source_repo_are_not_followed(tmp_path: Path) -> None:
+    """Found by the Step 2 review: copying followed links, so a repo could pull
+    host files (credentials) into the workspace the model reads."""
+    from conftest import make_dir_link
+
+    outside = tmp_path / "home" / ".aws"
+    outside.mkdir(parents=True)
+    (outside / "credentials").write_text("SECRET-OUTSIDE\n", encoding="utf-8")
+    source = tmp_path / "repo"
+    source.mkdir()
+    (source / "app.py").write_text("x = 1\n", encoding="utf-8")
+    make_dir_link(source / "fixtures", outside)
+    # File symlinks need a privilege on Windows; the junction covers that platform.
+    with contextlib.suppress(OSError):
+        os.symlink(outside / "credentials", source / "settings.ini")
+    workspace = prepare_workspace(source, tmp_path / "runs", "t")
+    copied = {p.relative_to(workspace).as_posix() for p in workspace.rglob("*")}
+    assert copied == {"app.py"}
+    assert not any(
+        "SECRET-OUTSIDE" in p.read_text(encoding="utf-8")
+        for p in workspace.rglob("*")
+        if p.is_file()
+    )
+
+
+def test_a_source_spelled_through_a_short_name_is_still_copied(tmp_path: Path) -> None:
+    import tempfile
+
+    source = Path(tempfile.mkdtemp(dir=tempfile.gettempdir())) / "repo"
+    (source / "pkg").mkdir(parents=True)
+    (source / "pkg" / "m.py").write_text("x = 1\n", encoding="utf-8")
+    try:
+        workspace = prepare_workspace(source, tmp_path / "runs", "t")
+        assert (workspace / "pkg" / "m.py").read_text(encoding="utf-8") == "x = 1\n"
+    finally:
+        shutil.rmtree(source.parent)

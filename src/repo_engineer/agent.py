@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import time
@@ -380,7 +381,10 @@ def prepare_workspace(source: Path, runs_root: Path, task_id: str) -> Path:
 
     n is one more than the highest existing workspace number for the task, so
     trace files next to the workspaces and deleted older runs do not matter.
-    Bytecode and pytest caches in the source are not copied.
+    Bytecode and pytest caches in the source are not copied, and neither are
+    symbolic links, junctions or other aliases: following them would copy
+    whatever they point at (host credentials, say) into a workspace the model
+    reads. Skipped links are logged.
     """
     runs_root.mkdir(parents=True, exist_ok=True)
     pattern = re.compile(rf"{re.escape(task_id)}_([0-9]+)")
@@ -401,6 +405,26 @@ def prepare_workspace(source: Path, runs_root: Path, task_id: str) -> Path:
             source,
             target,
             dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+            ignore=_skip_caches_and_links,
         )
         return target
+
+
+_CACHE_PATTERNS = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
+
+
+def _skip_caches_and_links(directory: str, names: list[str]) -> set[str]:
+    """copytree ignore hook: caches, plus every entry that is not its own real path."""
+    skipped = set(_CACHE_PATTERNS(directory, names))
+    # Compared with the parent's real path, so a source spelled through a
+    # short (8.3) name or a linked parent does not make every entry look like one.
+    real_directory = os.path.realpath(directory)
+    for name in names:
+        path = os.path.join(directory, name)
+        direct = os.path.join(real_directory, name)
+        if name not in skipped and os.path.normcase(os.path.realpath(path)) != os.path.normcase(
+            direct
+        ):
+            logger.warning("not copying %s: it is a link or junction", path)
+            skipped.add(name)
+    return skipped
