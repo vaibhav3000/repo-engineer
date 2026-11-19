@@ -22,10 +22,12 @@ from __future__ import annotations
 import abc
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from .llm_provider import OpenAICompatProvider, ProviderError
+from .schema import ToolSchema
 from .state import ToolCall
 
 # Mirrors ToolRegistry's default specs; the runtime remains the authority and
@@ -79,6 +81,9 @@ class Planner(abc.ABC):
     @abc.abstractmethod
     def next_action(self, task: dict[str, Any], history: list[dict[str, Any]]) -> ToolCall | None:
         """Return the next ToolCall, or None to stop (the runtime then verifies)."""
+
+    def prepare(self, tools: Sequence[ToolSchema]) -> None:  # noqa: B027
+        """Optional hook at the start of a run with the tools the registry offers."""
 
     def observe_replan(self, reason: str, history: list[dict[str, Any]]) -> None:  # noqa: B027
         """Optional hook when the runtime asks the planner to replan."""

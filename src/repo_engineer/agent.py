@@ -60,6 +60,7 @@ class AgentRuntime:
         usage_at_start = self.planner.usage()
         machine = StateMachine(state, max_steps=self.max_steps, max_replans=self.max_replans)
         self.registry.protect(task.get("protected_paths", []))
+        self.planner.prepare(self.registry.tool_schemas())
         machine.transition(State.ANALYZE_REPO)
         state.actions.append({"step": "analyze", "tool": "list_tree"})
         tree = self.registry.execute(ToolCall("list_tree", {}))
