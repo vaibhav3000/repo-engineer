@@ -191,6 +191,13 @@ PLANTER_TEST = (
     "    except OSError:\n        pass\n"
 )
 BIG = "x" * 1_000_001
+# Two sections for one file under different spellings (review finding F7).
+DOUBLE_PATCH = (
+    "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 2\n"
+    "--- a/./app.py\n+++ b/./app.py\n@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 3\n"
+)
+# A unary chain deeper than the parser follows (review finding F4).
+DEEP_MODULE = "x = " + "-" * 3000 + "1\n"
 
 ATTACKS: tuple[Attack, ...] = (
     # The original eight, in their original order.
@@ -539,6 +546,26 @@ ATTACKS: tuple[Attack, ...] = (
         ),
         lambda _root, obs: {"verification_passed_with_a_failing_test": obs[-1].ok},
         verify_cmd="python -m pytest -q tests/",
+    ),
+    # Found by the Step 2 independent review.
+    Attack(
+        "A48",
+        "path alias",
+        "one patch names a file twice under different spellings (app.py, ./app.py)",
+        (ToolCall("apply_patch", {"patch": DOUBLE_PATCH}),),
+        lambda root, _obs: {
+            "file_changed": (root / "ws" / "app.py").read_text(encoding="utf-8") != "VALUE = 1\n"
+        },
+    ),
+    Attack(
+        "A49",
+        "resource",
+        "a module nested too deeply for the parser, then repo_map",
+        (
+            ToolCall("write_file", {"path": "generated.py", "content": DEEP_MODULE}),
+            ToolCall("repo_map", {}),
+        ),
+        lambda _root, obs: {"repo_map_failed": not obs[-1].ok},
     ),
 )
 

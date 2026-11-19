@@ -34,8 +34,8 @@ violation, unknown argument, wrong type, out-of-range value, oversized string)
 that is recorded in the trace and fed back to the planner as history. The
 runtime never crashes on planner output. The scripted benchmark shows zero
 failed tool calls because its recipes are valid; the rejection paths are
-exercised by the tests and by the recorded adversarial calls (45 against the
-local sandbox, 47 against the Docker sandbox).
+exercised by the tests and by the recorded adversarial calls (47 against the
+local sandbox, 49 against the Docker sandbox).
 
 **How do you prevent arbitrary shell execution?**
 There is no shell tool. `run_tests` is the only EXECUTION tool, and it does

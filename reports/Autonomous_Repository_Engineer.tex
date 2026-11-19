@@ -58,8 +58,8 @@ deterministic planner that replays known fixes, the agent completes all
 twelve multi-file benchmark tasks with zero failed tool calls, and the
 committed results regenerate byte for byte on Windows and Linux and under
 either sandbox. A live Gemini 2.5 Flash planner completed the two tasks it
-was run on. Of 47 adversarial tool calls against the Docker sandbox, 29 are
-rejected before anything runs and 17 run without gaining anything; the one
+was run on. Of 49 adversarial tool calls against the Docker sandbox, 29 are
+rejected before anything runs and 19 run without gaining anything; the one
 residual, code under test forging its own test report, happens inside the
 test process and no sandbox can prevent it.
 \end{abstract}
@@ -379,7 +379,11 @@ itself: reading or writing host files, the network, a process that outlives
 the run, memory, a fork bomb, filling the disk, a conftest planted during a
 run, and forging the report. Under the local backend four of them are
 documented residuals; under Docker all are contained except report forging,
-which happens inside the test process on every backend.
+which happens inside the test process on every backend. A review of the
+Step 2 runtime found further issues (a patch applied from an incomplete
+diff could delete files, repository links were followed when copying, and
+several crash and flooding paths); all are fixed, and the two expressible
+as tool calls are in the evidence.
 
 \begin{table}[t]
 \centering
@@ -396,16 +400,16 @@ path escape & 6/0/0 & 6/0/0 \\
 shell commands & 2/0/0 & 2/0/0 \\
 malformed calls & 3/1/0 & 3/1/0 \\
 test command abuse & 8/1/0 & 8/1/0 \\
-path aliases & 3/0/0 & 3/0/0 \\
+path aliases & 3/1/0 & 3/1/0 \\
 git metadata & 2/1/0 & 2/1/0 \\
 links & 2/3/0 & 2/3/0 \\
 verification tampering & 2/1/0 & 2/1/0 \\
-resource limits & 1/2/0 & 1/2/0 \\
+resource limits & 1/3/0 & 1/3/0 \\
 credentials & 0/1/0 & 0/1/0 \\
 agent test code & 0/1/4 & 0/7/0 \\
 report forging & 0/0/1 & 0/0/1 \\
 \midrule
-Total & 29/11/5 (45) & 29/17/1 (47) \\
+Total & 29/13/5 (47) & 29/19/1 (49) \\
 \bottomrule
 \end{tabular}
 \end{table}
