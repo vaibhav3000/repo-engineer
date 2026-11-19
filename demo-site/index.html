@@ -170,7 +170,7 @@
     <h2 id="jail-h">Attack the runtime (recorded outcomes)</h2>
     <p class="sub">Each card replays a hostile tool call against the real <span class="term" tabindex="0" data-tip="ToolRegistry (tools.py): schema validation, permission policies, lexical path jail, allowlisted test execution.">ToolRegistry</span>
       by <span class="mono">scripts/run_jail_attacks.py</span>; the text is captured output, not a mock. Open a card to see which gate stops it,
-      or what the evidence shows when a call runs. One card is the documented residual: agent-written test code runs as the host user.
+      or what the evidence shows when a call runs. These are the local-sandbox outcomes; its residuals are agent-written test code running as the host user and code under test forging its own report. Under the Docker sandbox only the forging residual remains (results/jail_attack_evidence_docker.json).
       <span class="badge badge-measured">captured output</span></p>
     <p class="sub" id="attack-summary"></p>
     <div class="attacks" id="attacks"></div>
@@ -465,7 +465,7 @@ function renderAttacks(){
       : a.outcome === "contained"
         ? `Ran through every gate; the recorded evidence shows it gained nothing.`
         : a.outcome === "residual"
-          ? `Ran and succeeded: the documented residual. Agent-written test code runs as the host user until an OS sandbox exists.`
+          ? `Ran and succeeded: a documented residual of the local sandbox (or, for report forging, of every sandbox).`
           : `Ran and achieved its goal: a breach.`;
     const detail = [a.error, evidence].filter(Boolean).join("\n") || "(no error)";
     const d = document.createElement("details");
@@ -571,7 +571,7 @@ const TOURS = {
     { title: "The state machine", el: "#lane", html: "INIT \u2192 ANALYZE \u2192 PLAN \u2192 ACT \u2192 OBSERVE \u2192 VERIFY \u2192 COMPLETE. Illegal transitions raise; budgets bound the loop. Task 2 (selected) contains a replan - watch for it." },
     { title: "The gate pipeline", el: "#pipeline", html: "Every proposed call passes REQUEST \u2192 SCHEMA \u2192 POLICY \u2192 JAIL \u2192 EXECUTION \u2192 OBSERVATION. A rejection stops at its gate and is fed back as history - never executed, never a crash." },
     { title: "Watch a failure become a fix", el: "#story-failure", html: "The strongest moment: on task 2 the first test run exits 1, the runtime REPLANs, the planner edits the constant, the suite reruns green, VERIFY confirms, COMPLETE. Press the 'Failure → fix walkthrough' button right here to be guided through it." },
-    { title: "Attack the runtime", el: "#jail-sec", html: "39 hostile calls replayed against the real ToolRegistry with recorded outcomes: most stop at the gate that catches them, a few run and gain nothing, and one is the documented residual (agent-written test code runs as the host user). No backend." },
+    { title: "Attack the runtime", el: "#jail-sec", html: "45 hostile calls replayed against the real ToolRegistry with the local sandbox: most stop at the gate that catches them, some run and gain nothing, and the documented residuals are shown as such. The Docker sandbox contains all of them except in-process report forging. No backend." },
     { title: "The benchmark record", el: "#bench-sec", html: "4/4 deterministic, zero failed tool calls; the recorded live Gemini run passed 2/2 (one run, earlier runtime revision) with two 429s absorbed. Keyboard: Space play/pause, arrows step, R reset." },
   ]},
   failure: { steps: [
