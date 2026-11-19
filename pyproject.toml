@@ -13,6 +13,9 @@ license-files = ["LICENSE"]
 # run_tests and VERIFY start pytest with the runtime's own interpreter.
 dependencies = ["pytest>=9.2"]
 
+[project.scripts]
+repo-engineer = "repo_engineer.cli:main"
+
 [project.optional-dependencies]
 # Model providers for the native tool-calling planner, and MCP. Each is
 # optional and imported only when used.

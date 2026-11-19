@@ -18,6 +18,7 @@ from typing import Any
 
 from ..agent import AgentRuntime, prepare_workspace
 from ..planner import Planner
+from ..sandbox import Sandbox
 from ..tools import ToolRegistry
 from .harness import golden_trace, load_tasks
 
@@ -28,6 +29,7 @@ def run_live_benchmark(
     out_dir: Path,
     planner_factory: Callable[[], Planner],
     stamp: str | None = None,
+    sandbox: Sandbox | None = None,
 ) -> Path:
     """Run each task `attempts` times; return the path of the new results file."""
     if attempts < 1:
@@ -51,7 +53,7 @@ def run_live_benchmark(
             for attempt in range(1, attempts + 1):
                 planner = planner_factory()
                 workspace = prepare_workspace(Path(task["path"]), Path(runs_root), task_id)
-                runtime = AgentRuntime(ToolRegistry(workspace), planner)
+                runtime = AgentRuntime(ToolRegistry(workspace, sandbox=sandbox), planner)
                 started = time.perf_counter()
                 state = runtime.run_task(task)
                 summary = runtime.summary(state)
