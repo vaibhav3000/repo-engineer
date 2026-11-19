@@ -23,6 +23,10 @@ def load_tasks() -> list[dict[str, Any]]:
         task = json.loads(meta_file.read_text(encoding="utf-8"))
         task["path"] = str(task_path)
         tasks.append(task)
+    if not tasks:
+        # A packaging mistake that drops task.json must fail loudly, not
+        # report a 0/0 benchmark.
+        raise RuntimeError(f"no benchmark tasks (task.json files) found in {TASK_DIR}")
     return tasks
 
 

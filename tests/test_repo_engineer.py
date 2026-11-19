@@ -1,12 +1,9 @@
 """repo_engineer test suite: state machine, tools, jail, planner, runtime, harness."""
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from repo_engineer.agent import AgentRuntime, prepare_workspace
 from repo_engineer.planner import ConfigurationError, ScriptedPlanner

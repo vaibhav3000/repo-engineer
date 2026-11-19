@@ -1,24 +1,38 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "repo-engineer"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Autonomous Repository Engineer: a verified tool-using agent runtime with a deterministic state machine and a reproducible SWE benchmark harness"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
-dependencies = []
+license = "MIT"
+license-files = ["LICENSE"]
+# run_tests and VERIFY start pytest with the runtime's own interpreter.
+dependencies = ["pytest>=9.2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=9.2", "ruff==0.17.5", "pyright==1.1.414"]
 
+[tool.setuptools.dynamic]
+version = { attr = "repo_engineer.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["src"]
+# The task repos are data for the benchmark, not importable packages.
+exclude = ["repo_engineer.benchmark.tasks*"]
+
+[tool.setuptools.package-data]
+"repo_engineer.benchmark" = ["tasks/**/*"]
+
+[tool.setuptools.exclude-package-data]
+"repo_engineer.benchmark" = ["**/__pycache__/*", "**/*.pyc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.ruff]
 target-version = "py311"
