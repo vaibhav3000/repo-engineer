@@ -4,10 +4,18 @@ Design rules:
 - Every tool declares its schema, permission class and output contract.
 - Malformed calls are REJECTED with structured errors (never executed, never
   crash the runtime) and recorded in the trace.
-- Every path argument is jailed: resolved against the workspace root, escapes
-  rejected. The jail is the security boundary, not the LLM's good behavior.
-- EXECUTION tools run a command allowlist with subprocess timeouts and no
-  shell; anything else is denied.
+- Path and glob arguments are declared on the ToolSpec and jailed centrally in
+  execute(): checked as text first, then required to be a direct path inside
+  the workspace with no link on the way. Writes to .git, to pytest control
+  files and to paths the task protects are refused.
+- run_tests is the only EXECUTION tool. It accepts `python -m pytest` with an
+  allowlist of flags and test paths inside the workspace, and runs the
+  runtime's own interpreter without a shell, with a scrubbed environment, a
+  deadline, a bounded output buffer and a process-tree kill.
+
+What this does NOT do: the tests run_tests executes include code the agent
+wrote, and that code runs as the host user with the host user's filesystem
+and network access. Only an OS-level sandbox (planned) can contain it.
 """
 
 from __future__ import annotations
@@ -348,7 +356,7 @@ class ToolRegistry:
         self._register(
             ToolSpec(
                 name="run_tests",
-                description="Run a whitelisted test command inside the workspace.",
+                description="Run pytest on workspace test paths (allowlisted flags, no shell).",
                 permission=Permission.EXECUTION,
                 required_args={"cmd": str},
                 max_chars={"cmd": MAX_COMMAND_CHARS},

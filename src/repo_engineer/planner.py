@@ -3,15 +3,16 @@
 The planner is the "LLM" part of the agent; the runtime is everything else.
 Three planners ship:
 
-- ScriptedPlanner: deterministic, recipe-based policy used by the reproducible
-  benchmark. Zero API keys, zero network. It exercises the runtime machinery
-  (validation, jail, state machine, verification) with known-good steps.
+- ScriptedPlanner: replays fixed recipes that already contain each task's fix,
+  for the reproducible benchmark. Zero API keys, zero network. It exercises the
+  runtime machinery (validation, state machine, verification) with known-good
+  steps; it solves nothing, and the jail is exercised by the attack evidence.
 - LLMPlanner: a real planner backed by an OpenAI-compatible chat provider
   (default: Gemini). It sees the task, the tool schemas and the truncated
   execution history, and must answer with a JSON tool call. The runtime still
   validates, permission-checks and jails everything the model proposes, and
-  completion still requires a green test suite - the model cannot claim its
-  way to COMPLETE.
+  completion still requires the runtime's own verification run: the model
+  cannot claim its way to COMPLETE.
 - RecordedPlanner: replays a previously captured LLM trajectory (used by tests
   so no network is needed to test the planner plumbing).
 """
