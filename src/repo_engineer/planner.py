@@ -160,6 +160,7 @@ class LLMPlanner(Planner):
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
         self.calls = 0
+        self._replan_reason = ""
 
     def usage(self) -> PlannerUsage:
         return PlannerUsage(
@@ -169,13 +170,25 @@ class LLMPlanner(Planner):
             completion_tokens=self.total_completion_tokens,
         )
 
+    def observe_replan(self, reason: str, history: list[dict[str, Any]]) -> None:
+        """Remember why the runtime sent the planner back; shown in the next prompt."""
+        self._replan_reason = reason
+
     def next_action(self, task: dict[str, Any], history: list[dict[str, Any]]) -> ToolCall | None:
-        user = (
-            f"Task: {task.get('description', task.get('task_id', ''))}\n\n"
-            f"Execution history (newest last; outputs truncated):\n"
-            f"{json.dumps(history[-10:], indent=1, default=str)}\n\n"
-            f"{TOOL_CATALOG}"
+        sections = [f"Task: {task.get('description', task.get('task_id', ''))}"]
+        if task.get("repo_tree"):
+            sections.append(f"Repository files (from the runtime):\n{task['repo_tree']}")
+        if self._replan_reason:
+            sections.append(
+                "The runtime sent you back to planning because:\n" + self._replan_reason
+            )
+            self._replan_reason = ""
+        sections.append(
+            "Execution history (newest last; outputs truncated):\n"
+            + json.dumps(history[-10:], indent=1, default=str)
         )
+        sections.append(TOOL_CATALOG)
+        user = "\n\n".join(sections)
         data, resp = self.provider.chat_json(SYSTEM_PROMPT, user)
         self.calls += 1
         self.total_prompt_tokens += resp.prompt_tokens

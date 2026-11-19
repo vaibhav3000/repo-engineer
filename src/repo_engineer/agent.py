@@ -4,10 +4,11 @@ Loop contract (mirrors the documented state machine):
 
     INIT -> ANALYZE_REPO -> PLAN -> ACT -> OBSERVE -+-> PLAN (next step)
                                                     |-> REPLAN -> PLAN (tests failed)
+                                                    |-> REPLAN -> FAILED (no replans left)
                                                     +-> VERIFY -> COMPLETE / REPLAN / FAILED
 
 The runtime owns every decision: it validates tool calls, enforces permissions
-and budgets, tracks files changed, and only trusts the verification suite —
+and budgets, tracks files changed, and trusts only its own verification run,
 never a planner's claim that the work is done.
 """
 
@@ -19,11 +20,18 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from .planner import Planner
+from .planner import Planner, PlannerUsage
 from .state import AgentState, Observation, State, StateMachine, ToolCall, write_trace
 from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+# Consecutive planner failures (provider errors, malformed replies) that end a run.
+MAX_CONSECUTIVE_PLANNER_ERRORS = 3
+# How much of each observation goes into the planner's history. For run_tests
+# the end of the output is kept, because pytest prints failures and the
+# summary last; for other tools the beginning is kept.
+HISTORY_OUTPUT_CHARS = 1500
 
 
 class AgentRuntime:
@@ -47,6 +55,7 @@ class AgentRuntime:
             task_description=task.get("description", ""),
             workspace=str(self.registry.workspace),
         )
+        usage_at_start = self.planner.usage()
         machine = StateMachine(state, max_steps=self.max_steps, max_replans=self.max_replans)
         self.registry.protect(task.get("protected_paths", []))
         machine.transition(State.ANALYZE_REPO)
@@ -54,8 +63,11 @@ class AgentRuntime:
         tree = self.registry.execute(ToolCall("list_tree", {}))
         state.observations.append({"tool": "list_tree", "ok": tree.ok})
         state.hypothesis = f"workspace has {len(tree.output_excerpt.splitlines())} entries"
+        # The planner sees the task together with the runtime's own listing.
+        planner_task = {**task, "repo_tree": tree.output_excerpt}
 
         history: list[dict[str, Any]] = []
+        consecutive_planner_errors = 0
         while True:
             if machine.budget_exhausted():
                 state.errors.append("budget exhausted")
@@ -65,15 +77,17 @@ class AgentRuntime:
                 machine.transition(State.PLAN)
             action = None
             try:
-                action = self.planner.next_action(task, history)
+                action = self.planner.next_action(planner_task, history)
             except Exception as exc:
                 state.planner_errors += 1
-                state.errors.append(f"planner error: {type(exc).__name__}: {exc}"[:200])
-                if state.planner_errors >= 3:
+                consecutive_planner_errors += 1
+                message = self.registry.redact(f"planner error: {type(exc).__name__}: {exc}")
+                state.errors.append(message[:200])
+                if consecutive_planner_errors >= MAX_CONSECUTIVE_PLANNER_ERRORS:
                     machine.transition(State.FAILED)
                     break
                 continue
-            state.planner_errors = 0
+            consecutive_planner_errors = 0
             if action is None:
                 machine.transition(State.VERIFY)
             else:
@@ -83,10 +97,6 @@ class AgentRuntime:
                 state.actions.append(
                     {"step": state.steps_used, "tool": action.tool, "args": _jsonable(action.args)}
                 )
-                if action.tool == "apply_edit" or action.tool == "write_file":
-                    changed = action.args.get("path")
-                    if changed and changed not in state.files_changed:
-                        state.files_changed.append(changed)
 
                 # A MUTATING/EXECUTION call under ASK policy that is denied
                 # comes back as a rejected Observation from the registry
@@ -95,15 +105,11 @@ class AgentRuntime:
                 observation = self.registry.execute(action)
                 machine.transition(State.OBSERVE)
                 state.observations.append(_observation_dict(observation))
-                history.append(
-                    {
-                        "tool": action.tool,
-                        "args": _jsonable(action.args),
-                        "ok": observation.ok,
-                        "error": observation.error,
-                        "output": observation.output_excerpt[:400],
-                    }
-                )
+                history.append(_history_entry(action.tool, action.args, observation))
+                if observation.ok and action.tool in ("apply_edit", "write_file"):
+                    changed = self.registry.workspace_relative(action.args["path"])
+                    if changed not in state.files_changed:
+                        state.files_changed.append(changed)
 
                 if action.tool == "run_tests":
                     passed = observation.ok and observation.exit_code == 0
@@ -120,7 +126,9 @@ class AgentRuntime:
                         state.replans += 1
                         machine.transition(State.REPLAN)
                         self.planner.observe_replan(
-                            f"tests failed: {observation.output_excerpt[-500:]}", history
+                            f"tests failed (exit {observation.exit_code}):\n"
+                            + _tail(observation.output_excerpt or observation.error or ""),
+                            history,
                         )
                         machine.transition(State.PLAN)
                         continue
@@ -145,6 +153,9 @@ class AgentRuntime:
                 {"step": "verify", "tool": "run_tests", "args": {"cmd": verify_cmd}}
             )
             state.observations.append(_observation_dict(result.observation))
+            history.append(
+                _history_entry("run_tests", {"cmd": verify_cmd}, result.observation, verify=True)
+            )
             state.test_results.append(
                 {
                     "verify": True,
@@ -157,19 +168,24 @@ class AgentRuntime:
             )
             if not result.passed:
                 state.errors.append(f"verification failed: {result.reason}")
-            passed = result.passed
-            state.verified = passed
-            if passed:
+            state.verified = result.passed
+            if result.passed:
                 machine.transition(State.COMPLETE)
             elif machine.can_replan():
                 state.replans += 1
                 machine.transition(State.REPLAN)
+                self.planner.observe_replan(
+                    f"verification failed: {result.reason}\n"
+                    + _tail(result.observation.output_excerpt or result.observation.error or ""),
+                    history,
+                )
                 machine.transition(State.PLAN)
                 continue
             else:
                 machine.transition(State.FAILED)
             break
 
+        state.llm_usage = _usage_delta(usage_at_start, self.planner.usage())
         if trace_path is not None:
             write_trace(state, trace_path)
         return state
@@ -185,14 +201,59 @@ class AgentRuntime:
             "files_changed": state.files_changed,
             "errors": state.errors,
         }
-        # Model-backed planners report usage; deterministic planners return None.
-        usage = self.planner.usage()
-        if usage is not None:
-            out["llm_calls"] = usage.calls
-            out["llm_prompt_tokens"] = usage.prompt_tokens
-            out["llm_completion_tokens"] = usage.completion_tokens
-            out["llm_model"] = usage.model
+        # Model-backed planners report usage for this run only; deterministic
+        # planners report none.
+        if state.llm_usage is not None:
+            out["llm_calls"] = state.llm_usage["calls"]
+            out["llm_prompt_tokens"] = state.llm_usage["prompt_tokens"]
+            out["llm_completion_tokens"] = state.llm_usage["completion_tokens"]
+            out["llm_model"] = state.llm_usage["model"]
         return out
+
+
+def _usage_delta(start: PlannerUsage | None, end: PlannerUsage | None) -> dict[str, Any] | None:
+    """Usage between two snapshots of a planner's cumulative counters."""
+    if end is None:
+        return None
+    calls, prompt, completion = (
+        (0, 0, 0)
+        if start is None
+        else (
+            start.calls,
+            start.prompt_tokens,
+            start.completion_tokens,
+        )
+    )
+    return {
+        "model": end.model,
+        "calls": end.calls - calls,
+        "prompt_tokens": end.prompt_tokens - prompt,
+        "completion_tokens": end.completion_tokens - completion,
+    }
+
+
+def _tail(text: str, limit: int = HISTORY_OUTPUT_CHARS) -> str:
+    return text if len(text) <= limit else text[len(text) - limit :]
+
+
+def _history_entry(
+    tool: str, args: dict[str, Any], observation: Observation, *, verify: bool = False
+) -> dict[str, Any]:
+    """What the planner sees about one step (already redacted by the registry)."""
+    excerpt = observation.output_excerpt
+    output = _tail(excerpt) if tool == "run_tests" else excerpt[:HISTORY_OUTPUT_CHARS]
+    entry: dict[str, Any] = {
+        "tool": tool,
+        "args": _jsonable(args),
+        "ok": observation.ok,
+        "error": observation.error,
+        "output": output,
+    }
+    if observation.exit_code is not None:
+        entry["exit_code"] = observation.exit_code
+    if verify:
+        entry["verify"] = True
+    return entry
 
 
 def _observation_dict(observation: Observation) -> dict[str, Any]:

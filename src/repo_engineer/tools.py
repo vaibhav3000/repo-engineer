@@ -935,6 +935,10 @@ class ToolRegistry:
                 continue  # a configured path outside the workspace is ignored
         return roots
 
+    def workspace_relative(self, raw: str) -> str:
+        """The jailed, workspace-relative POSIX form of an agent path."""
+        return self._display(self.jailed_path(raw))
+
     def _display(self, path: Path) -> str:
         """Workspace-relative POSIX form of a jailed path ('.' for the root)."""
         rel = path.relative_to(self.workspace).as_posix()

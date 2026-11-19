@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from enum import StrEnum
 from typing import Any
 
@@ -71,7 +71,6 @@ class AgentState:
     task_description: str
     workspace: str
     state: State = State.INIT
-    plan: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
     observations: list[dict[str, Any]] = field(default_factory=list)
     test_results: list[dict[str, Any]] = field(default_factory=list)
@@ -80,8 +79,9 @@ class AgentState:
     files_changed: list[str] = field(default_factory=list)
     steps_used: int = 0
     replans: int = 0
-    planner_errors: int = 0
+    planner_errors: int = 0  # every planner failure in the run, not only consecutive ones
     verified: bool = False
+    llm_usage: dict[str, Any] | None = None  # this run's model usage, if any
     started_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
@@ -91,7 +91,9 @@ class AgentState:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> AgentState:
-        d = dict(d)
+        known = {f.name for f in fields(cls)}
+        # Traces written by older versions may carry fields that no longer exist.
+        d = {key: value for key, value in d.items() if key in known}
         d["state"] = State(d["state"])
         return cls(**d)
 
