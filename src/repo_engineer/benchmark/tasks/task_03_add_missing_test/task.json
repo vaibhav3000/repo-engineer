@@ -22,5 +22,19 @@
       "find": "\"-\".join(cleaned.split())",
       "replace": "cleaned.strip().replace(\" \", \"-\")"
     }
+  ],
+  "neutral_edits": [
+    {
+      "name": "rewritten docstring",
+      "path": "web/slug.py",
+      "find": "\"\"\"Lowercase, drop punctuation, collapse whitespace into single hyphens.\"\"\"",
+      "replace": "\"\"\"Return the URL slug of text.\"\"\""
+    },
+    {
+      "name": "equivalent join",
+      "path": "web/slug.py",
+      "find": "\"-\".join(cleaned.split())",
+      "replace": "\"-\".join(word for word in cleaned.split())"
+    }
   ]
 }

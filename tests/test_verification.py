@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -164,6 +165,24 @@ def test_a_vacuous_test_does_not_complete_the_add_a_test_task(tmp_path: Path) ->
     assert state.state is State.FAILED and not state.verified
     verify = [r for r in state.test_results if r.get("verify")][-1]
     assert verify["mutants_killed"] == 0 and verify["mutants_total"] >= 3
+
+
+def test_a_change_detector_test_does_not_complete_the_add_a_test_task(tmp_path: Path) -> None:
+    """Found by the post-fix review: a test that only pins the file's hash
+    'detects' every mutant. Behaviour-preserving edits must still pass."""
+    source = TASKS / "task_03_add_missing_test" / "web" / "slug.py"
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    detector = (
+        "import hashlib\nfrom pathlib import Path\n\n\ndef test_unchanged():\n"
+        "    data = Path('web/slug.py').read_bytes()\n"
+        f"    assert hashlib.sha256(data).hexdigest() == {digest!r}\n"
+    )
+    write = ToolCall("write_file", {"path": "tests/test_slug.py", "content": detector})
+    state, _ = run_real_task(tmp_path, "task_03_add_missing_test", [write, None])
+    assert state.state is State.FAILED and not state.verified
+    verify = [r for r in state.test_results if r.get("verify")][-1]
+    assert verify["mutants_killed"] == verify["mutants_total"]
+    assert verify["neutral_edits_passed"] < verify["neutral_edits_total"]
 
 
 def test_the_code_under_test_cannot_be_changed_on_the_add_a_test_task(tmp_path: Path) -> None:

@@ -162,6 +162,8 @@ class Verification:
     restored: tuple[str, ...]  # protected paths put back before the run
     mutants_total: int
     mutants_killed: int
+    neutral_edits_total: int = 0
+    neutral_edits_passed: int = 0
 
 
 @dataclass(frozen=True)
@@ -740,7 +742,12 @@ class ToolRegistry:
 
     # ------------------------------------------------------------- verification
 
-    def verify(self, cmd: str, mutants: Sequence[Mapping[str, str]] = ()) -> Verification:
+    def verify(
+        self,
+        cmd: str,
+        mutants: Sequence[Mapping[str, str]] = (),
+        neutral_edits: Sequence[Mapping[str, str]] = (),
+    ) -> Verification:
         """Run the verification suite on a workspace the agent cannot have steered.
 
         Protected paths and pytest control files are restored first. The suite
@@ -748,7 +755,9 @@ class ToolRegistry:
         must show at least one passing test and no failures or errors, so code
         that ends the process early with status 0 does not count as a pass.
         Each seeded mutant (an exact one-place edit of a protected file) must
-        then make the suite fail, which rejects vacuous tests.
+        then make the suite fail, which rejects vacuous tests, and each
+        behaviour-preserving edit must leave it passing, which rejects tests
+        that only pin the source text.
 
         Code under test still runs in the same process as pytest, so a
         determined agent could forge the report itself; only running the
@@ -779,7 +788,19 @@ class ToolRegistry:
         if survivors:
             reason = "the tests did not detect seeded mutants: " + "; ".join(survivors)
             return Verification(False, observation, reason, restored, total, killed)
-        return Verification(True, observation, "", restored, total, killed)
+        neutral_total = len(neutral_edits)
+        try:
+            neutral_passed, broken = self._run_neutral_edits(args, neutral_edits)
+        except (OSError, RestoreError) as exc:
+            return self._unrestorable(exc, total)
+        if broken:
+            reason = "the tests failed on behaviour-preserving edits: " + "; ".join(broken)
+            return Verification(
+                False, observation, reason, restored, total, killed, neutral_total, neutral_passed
+            )
+        return Verification(
+            True, observation, "", restored, total, killed, neutral_total, neutral_passed
+        )
 
     def _unrestorable(self, exc: Exception, mutants_total: int) -> Verification:
         error = self.redact(f"could not restore protected files: {type(exc).__name__}: {exc}")
@@ -821,40 +842,61 @@ class ToolRegistry:
     def _run_mutants(
         self, args: list[str], mutants: Sequence[Mapping[str, str]]
     ) -> tuple[int, list[str]]:
-        """Apply each mutant to its pristine file, run the suite, put the file back."""
-        killed = 0
-        survivors: list[str] = []
-        for mutant in mutants:
+        """Each mutant must make the suite fail; returns (killed, survivor names)."""
+        return self._run_variants(args, mutants, must_fail=True)
+
+    def _run_neutral_edits(
+        self, args: list[str], edits: Sequence[Mapping[str, str]]
+    ) -> tuple[int, list[str]]:
+        """Each behaviour-preserving edit must leave the suite passing.
+
+        A test that only pins the source text (a hash, say) fails here, so it
+        cannot pass verification by "detecting" every mutant.
+        """
+        return self._run_variants(args, edits, must_fail=False)
+
+    def _run_variants(
+        self, args: list[str], variants: Sequence[Mapping[str, str]], *, must_fail: bool
+    ) -> tuple[int, list[str]]:
+        """Apply each one-place edit to its pristine protected file, run the
+        suite, put the file back. Returns how many behaved as required and
+        the names of those that did not."""
+        as_required = 0
+        failures: list[str] = []
+        for variant in variants:
             # Undo anything the previous run planted (test code runs in every
-            # run), so a planted conftest cannot make mutants look detected.
+            # run), so a planted conftest cannot steer the next run.
             self.restore_protected()
-            name = str(mutant.get("name") or mutant.get("find", "unnamed"))
-            rel = "/".join(path_components(mutant["path"]))
+            name = str(variant.get("name") or variant.get("find", "unnamed"))
+            rel = "/".join(path_components(variant["path"]))
             original = self.snapshot.pinned.get(rel, self.snapshot.files.get(rel))
             text = original.decode("utf-8") if original is not None else ""
-            if original is None or text.count(mutant["find"]) != 1:
-                survivors.append(f"{name} (the mutant does not apply to {rel})")
+            if original is None or text.count(variant["find"]) != 1:
+                failures.append(f"{name} (the edit does not apply to {rel})")
                 continue
             if not (self.is_protected(rel) or controls_pytest(rel)):
                 # Only protected files are restored after the run.
-                survivors.append(f"{name} (mutants must target a protected file, not {rel})")
+                failures.append(f"{name} (edits must target a protected file, not {rel})")
                 continue
             target = self.workspace / rel
-            target.write_bytes(text.replace(mutant["find"], mutant["replace"], 1).encode("utf-8"))
+            target.write_bytes(text.replace(variant["find"], variant["replace"], 1).encode("utf-8"))
             try:
                 observation, report = self._verification_run(args)
             finally:
-                self.restore_protected()  # also puts the mutated file back
-            detected = (
-                observation.exit_code == 1
-                and report is not None
-                and report.failures + report.errors > 0
-            )
-            if detected:
-                killed += 1
+                self.restore_protected()  # also puts the edited file back
+            if must_fail:
+                behaved = (
+                    observation.exit_code == 1
+                    and report is not None
+                    and report.failures + report.errors > 0
+                )
             else:
-                survivors.append(name)
-        return killed, survivors
+                behaved = not _verification_failure(observation, report)
+            if behaved:
+                as_required += 1
+            else:
+                failures.append(name)
+        return as_required, failures
 
     def _command_observation(self, result: ProcessResult) -> Observation:
         """Observation for a runtime-initiated pytest run, formatted like run_tests."""

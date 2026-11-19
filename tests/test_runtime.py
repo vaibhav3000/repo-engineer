@@ -192,7 +192,7 @@ def test_an_error_inside_verification_ends_the_run_failed(
 ) -> None:
     registry = ToolRegistry(workspace)
 
-    def broken_verify(cmd: str, mutants: Any = ()) -> Any:
+    def broken_verify(cmd: str, *variants: Any) -> Any:
         raise RuntimeError("verifier exploded")
 
     monkeypatch.setattr(registry, "verify", broken_verify)

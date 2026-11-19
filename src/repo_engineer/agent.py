@@ -152,7 +152,7 @@ class AgentRuntime:
             verify_cmd = task.get("verify_cmd", "python -m pytest tests/ -q")
             mutants = task.get("mutants", [])
             try:
-                result = self.registry.verify(verify_cmd, mutants)
+                result = self.registry.verify(verify_cmd, mutants, task.get("neutral_edits", []))
             except Exception as exc:
                 # A failure inside the verifier is a failed verification: it
                 # must end the run cleanly with a trace, never crash it.
@@ -180,6 +180,8 @@ class AgentRuntime:
                     "restored": list(result.restored),
                     "mutants_total": result.mutants_total,
                     "mutants_killed": result.mutants_killed,
+                    "neutral_edits_total": result.neutral_edits_total,
+                    "neutral_edits_passed": result.neutral_edits_passed,
                 }
             )
             if not result.passed:

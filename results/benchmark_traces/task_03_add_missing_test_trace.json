@@ -103,7 +103,9 @@
       "exit_code": 0,
       "restored": [],
       "mutants_total": 3,
-      "mutants_killed": 3
+      "mutants_killed": 3,
+      "neutral_edits_total": 2,
+      "neutral_edits_passed": 2
     }
   ],
   "errors": [],
