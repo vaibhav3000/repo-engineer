@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from repo_engineer.agent import AgentRuntime
 from repo_engineer.planner import Planner, PlannerUsage, RecordedPlanner
 from repo_engineer.state import AgentState, State, ToolCall
@@ -183,3 +185,19 @@ def test_history_keeps_the_end_of_test_output(workspace: Path) -> None:
 
 def test_agent_state_has_no_unused_plan_field() -> None:
     assert "plan" not in AgentState.__dataclass_fields__
+
+
+def test_an_error_inside_verification_ends_the_run_failed(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    registry = ToolRegistry(workspace)
+
+    def broken_verify(cmd: str, mutants: Any = ()) -> Any:
+        raise RuntimeError("verifier exploded")
+
+    monkeypatch.setattr(registry, "verify", broken_verify)
+    trace = tmp_path / "trace.json"
+    state = AgentRuntime(registry, RecordedPlanner([None])).run_task(TASK, trace_path=trace)
+    assert state.state is State.FAILED and not state.verified
+    assert any("verifier exploded" in e for e in state.errors)
+    assert trace.exists()

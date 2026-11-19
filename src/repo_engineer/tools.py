@@ -40,7 +40,7 @@ from typing import Any
 from .jail import JailViolation, path_components
 from .process import ProcessResult, child_env, run_bounded
 from .redaction import Redactor
-from .snapshot import WorkspaceSnapshot
+from .snapshot import RestoreError, WorkspaceSnapshot
 from .state import Observation, ToolCall
 
 
@@ -251,6 +251,7 @@ class ToolRegistry:
         self.search_timeout_s = search_timeout_s
         self.redact = Redactor(self.workspace)
         self.snapshot = WorkspaceSnapshot(self.workspace)
+        self.snapshot.pin(controls_pytest)
         self.protected_prefixes: tuple[str, ...] = ()
         self.specs: dict[str, ToolSpec] = {}
         self._register_defaults()
@@ -489,6 +490,7 @@ class ToolRegistry:
         """
         prefixes = {"/".join(path_components(raw)).lower() for raw in paths}
         self.protected_prefixes = tuple(sorted(prefix for prefix in prefixes if prefix))
+        self.snapshot.pin(self.is_protected)
 
     def is_protected(self, rel: str) -> bool:
         low = rel.lower()
@@ -509,10 +511,12 @@ class ToolRegistry:
         """Put protected paths and pytest control files back as they started.
 
         Changed files are rewritten, deleted ones recreated, and ones created
-        during the run (by the agent's test code, say) removed, together with
-        any links or junctions that did not exist at the start.
+        during the run (by the agent's test code, say) removed, whatever their
+        size, together with any links, junctions and __pycache__ directories
+        that did not exist at the start.
         """
         restored = self.snapshot.remove_new_links()
+        restored += self.snapshot.remove_new_caches()
         restored += self.snapshot.restore(
             lambda rel: controls_pytest(rel) or self.is_protected(rel)
         )
@@ -700,12 +704,7 @@ class ToolRegistry:
 
     def _run_tests(self, cmd: str) -> CommandResult:
         args = self.parse_test_command(cmd)
-        result = run_bounded(
-            self.pytest_argv(args),
-            cwd=self.workspace,
-            env=child_env(),
-            timeout_s=self.exec_timeout_s,
-        )
+        result, _ = self._run_pytest(args)
         if result.timed_out or result.exit_code is None:
             raise subprocess.TimeoutExpired(cmd, self.exec_timeout_s, output=result.output)
         return CommandResult(
@@ -729,8 +728,11 @@ class ToolRegistry:
         determined agent could forge the report itself; only running the
         verifier outside the agent's reach (Step 2 sandbox) closes that.
         """
-        restored = tuple(self.restore_protected())
         total = len(mutants)
+        try:
+            restored = tuple(self.restore_protected())
+        except (OSError, RestoreError) as exc:
+            return self._unrestorable(exc, total)
         try:
             args = self.parse_test_command(cmd)
         except JailViolation as exc:
@@ -744,26 +746,51 @@ class ToolRegistry:
         reason = _verification_failure(observation, report)
         if reason:
             return Verification(False, observation, reason, restored, total, 0)
-        killed, survivors = self._run_mutants(args, mutants)
+        try:
+            killed, survivors = self._run_mutants(args, mutants)
+        except (OSError, RestoreError) as exc:
+            return self._unrestorable(exc, total)
         if survivors:
             reason = "the tests did not detect seeded mutants: " + "; ".join(survivors)
             return Verification(False, observation, reason, restored, total, killed)
         return Verification(True, observation, "", restored, total, killed)
 
+    def _unrestorable(self, exc: Exception, mutants_total: int) -> Verification:
+        error = self.redact(f"could not restore protected files: {type(exc).__name__}: {exc}")
+        observation = Observation(tool="run_tests", ok=False, error=error)
+        return Verification(False, observation, error, (), mutants_total, 0)
+
     def _verification_run(self, args: list[str]) -> tuple[Observation, JUnitSummary | None]:
-        report_dir = Path(tempfile.mkdtemp(prefix="repo_engineer_verify_"))
-        report_path = report_dir / "junit.xml"
+        result, report = self._run_pytest(args, junit_report=True)
+        return self._command_observation(result), report
+
+    def _run_pytest(
+        self, args: list[str], *, junit_report: bool = False
+    ) -> tuple[ProcessResult, JUnitSummary | None]:
+        """Run pytest on checked args with per-run scratch space outside the workspace.
+
+        The bytecode cache goes to a fresh PYTHONPYCACHEPREFIX, so bytecode
+        planted in the workspace's __pycache__ directories is never read, and
+        pytest's tmp_path base lives there too (its default path names the user).
+        """
+        scratch = Path(tempfile.mkdtemp(prefix="repo_engineer_pytest_"))
         try:
+            env = child_env()
+            env["PYTHONPYCACHEPREFIX"] = str(scratch / "pycache")
+            extra = [f"--basetemp={scratch / 'tmp'}"]
+            report_path = scratch / "junit.xml"
+            if junit_report:
+                extra.append(f"--junitxml={report_path}")
             result = run_bounded(
-                self.pytest_argv(args, extra=(f"--junitxml={report_path}",)),
+                self.pytest_argv(args, extra=tuple(extra)),
                 cwd=self.workspace,
-                env=child_env(),
+                env=env,
                 timeout_s=self.exec_timeout_s,
             )
-            report = _read_junit(report_path)
+            report = _read_junit(report_path) if junit_report else None
         finally:
-            shutil.rmtree(report_dir, ignore_errors=True)
-        return self._command_observation(result), report
+            shutil.rmtree(scratch, ignore_errors=True)  # scratch space only
+        return result, report
 
     def _run_mutants(
         self, args: list[str], mutants: Sequence[Mapping[str, str]]
@@ -772,19 +799,26 @@ class ToolRegistry:
         killed = 0
         survivors: list[str] = []
         for mutant in mutants:
+            # Undo anything the previous run planted (test code runs in every
+            # run), so a planted conftest cannot make mutants look detected.
+            self.restore_protected()
             name = str(mutant.get("name") or mutant.get("find", "unnamed"))
             rel = "/".join(path_components(mutant["path"]))
-            original = self.snapshot.files.get(rel)
+            original = self.snapshot.pinned.get(rel, self.snapshot.files.get(rel))
             text = original.decode("utf-8") if original is not None else ""
             if original is None or text.count(mutant["find"]) != 1:
                 survivors.append(f"{name} (the mutant does not apply to {rel})")
+                continue
+            if not (self.is_protected(rel) or controls_pytest(rel)):
+                # Only protected files are restored after the run.
+                survivors.append(f"{name} (mutants must target a protected file, not {rel})")
                 continue
             target = self.workspace / rel
             target.write_bytes(text.replace(mutant["find"], mutant["replace"], 1).encode("utf-8"))
             try:
                 observation, report = self._verification_run(args)
             finally:
-                target.write_bytes(original)
+                self.restore_protected()  # also puts the mutated file back
             detected = (
                 observation.exit_code == 1
                 and report is not None

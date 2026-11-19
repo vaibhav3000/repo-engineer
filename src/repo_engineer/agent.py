@@ -23,7 +23,7 @@ from typing import Any
 
 from .planner import Planner, PlannerUsage
 from .state import AgentState, Observation, State, StateMachine, ToolCall, write_trace
-from .tools import ToolRegistry
+from .tools import ToolRegistry, Verification
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,21 @@ class AgentRuntime:
             # the suite itself; only its evidence can open COMPLETE.
             state.steps_used += 1
             verify_cmd = task.get("verify_cmd", "python -m pytest tests/ -q")
-            result = self.registry.verify(verify_cmd, task.get("mutants", []))
+            mutants = task.get("mutants", [])
+            try:
+                result = self.registry.verify(verify_cmd, mutants)
+            except Exception as exc:
+                # A failure inside the verifier is a failed verification: it
+                # must end the run cleanly with a trace, never crash it.
+                error = self.registry.redact(f"verification error: {type(exc).__name__}: {exc}")
+                result = Verification(
+                    passed=False,
+                    observation=Observation(tool="run_tests", ok=False, error=error),
+                    reason=error,
+                    restored=(),
+                    mutants_total=len(mutants),
+                    mutants_killed=0,
+                )
             state.actions.append(
                 {"step": "verify", "tool": "run_tests", "args": {"cmd": verify_cmd}}
             )
