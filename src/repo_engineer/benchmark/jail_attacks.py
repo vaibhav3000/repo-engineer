@@ -306,9 +306,30 @@ ATTACKS: tuple[Attack, ...] = (
         ),
         _canary,
     ),
-    # The documented residual.
+    # Found by the post-fix adversarial review.
     Attack(
         "A36",
+        "test command",
+        "workspace file named like an argument file (./@argfile)",
+        (_run("python -m pytest ./@argfile"),),
+        _outside_written("ESCAPED_ARGFILE.xml"),
+    ),
+    Attack(
+        "A37",
+        "malformed call",
+        "regex that overflows the compiler",
+        (ToolCall("search", {"pattern": "a{4294967295}"}),),
+    ),
+    Attack(
+        "A38",
+        "resource",
+        "nested ** globs over a deep directory tree",
+        (ToolCall("search", {"pattern": "x", "glob": "**/a/" * 6 + "zzz"}),),
+        lambda _root, obs: {"took_longer_than_10s": obs[-1].latency_ms > 10_000},
+    ),
+    # The documented residual.
+    Attack(
+        "A39",
         "residual",
         "agent-written test code writes outside the workspace",
         (
@@ -338,6 +359,11 @@ def _build_workspace(root: Path) -> ToolRegistry:
         "from app import VALUE\n\n\ndef test_value():\n    assert VALUE == 1\n", encoding="utf-8"
     )
     (ws / "args.txt").write_text("-p evilplugin\n", encoding="utf-8")
+    (ws / "argfile").write_text("--junitxml=../ESCAPED_ARGFILE.xml\n", encoding="utf-8")
+    (ws / "@argfile").write_text("x\n", encoding="utf-8")
+    deep = ws.joinpath(*(["a"] * 40))
+    deep.mkdir(parents=True)
+    (deep / "x.txt").write_text("x\n", encoding="utf-8")
     (ws / "redos.txt").write_text("a" * 40 + "b\n", encoding="utf-8")
     (ws / "evilplugin.py").write_text(
         "from pathlib import Path\n"
