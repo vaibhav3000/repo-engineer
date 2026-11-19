@@ -35,33 +35,49 @@ _TYPES: dict[str, tuple[type, ...]] = {
 }
 
 
-def validate_json_schema(value: Any, schema: dict[str, Any]) -> str | None:
-    """Return a description of the first violation, or None when value conforms."""
-    if schema.get("type") == "object" and not isinstance(value, dict):
+def validate_json_schema(value: Any, schema: Any) -> str | None:
+    """Return a description of the first violation, or None when value conforms.
+
+    Schemas come from external servers, so any shape is tolerated: a boolean
+    schema accepts (true) or refuses (false) everything, and a keyword whose
+    value is not of the expected kind is ignored rather than trusted.
+    """
+    if isinstance(schema, dict) and schema.get("type") == "object" and not isinstance(value, dict):
         return f"arguments must be object, got {type(value).__name__}"
     return _check(value, schema, "")
 
 
-def _check(value: Any, schema: dict[str, Any], where: str) -> str | None:
+def _check(value: Any, schema: Any, where: str) -> str | None:
     label = f"'{where}'" if where else "value"
+    if schema is False:
+        return f"{label} is not allowed"
+    if not isinstance(schema, dict):
+        return None  # true, or a shape this validator does not interpret
     expected = schema.get("type")
     if expected is not None:
-        names = expected if isinstance(expected, list) else [expected]
-        if not any(_is_type(value, name) for name in names):
+        names = [
+            n
+            for n in (expected if isinstance(expected, list) else [expected])
+            if isinstance(n, str)
+        ]
+        if names and not any(_is_type(value, name) for name in names):
             return f"{label} must be {' or '.join(names)}, got {type(value).__name__}"
     if "const" in schema and value != schema["const"]:
         return f"{label} must be {schema['const']!r}"
-    if "enum" in schema and value not in schema["enum"]:
-        return f"{label} must be one of {schema['enum']!r}"
+    enum = schema.get("enum")
+    if isinstance(enum, list) and value not in enum:
+        return f"{label} must be one of {enum!r}"
     if isinstance(value, str):
-        if "maxLength" in schema and len(value) > schema["maxLength"]:
+        longest, shortest = _number(schema, "maxLength"), _number(schema, "minLength")
+        if longest is not None and len(value) > longest:
             return f"{label} is longer than {schema['maxLength']} characters"
-        if "minLength" in schema and len(value) < schema["minLength"]:
+        if shortest is not None and len(value) < shortest:
             return f"{label} is shorter than {schema['minLength']} characters"
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if "minimum" in schema and value < schema["minimum"]:
+        low, high = _number(schema, "minimum"), _number(schema, "maximum")
+        if low is not None and value < low:
             return f"{label} is below the minimum {schema['minimum']}"
-        if "maximum" in schema and value > schema["maximum"]:
+        if high is not None and value > high:
             return f"{label} is above the maximum {schema['maximum']}"
     if isinstance(value, list):
         return _check_array(value, schema, where, label)
@@ -70,25 +86,34 @@ def _check(value: Any, schema: dict[str, Any], where: str) -> str | None:
     return None
 
 
+def _number(schema: dict[str, Any], key: str) -> float | None:
+    value = schema.get(key)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    return None
+
+
 def _check_array(value: list[Any], schema: dict[str, Any], where: str, label: str) -> str | None:
-    if "maxItems" in schema and len(value) > schema["maxItems"]:
+    most, fewest = _number(schema, "maxItems"), _number(schema, "minItems")
+    if most is not None and len(value) > most:
         return f"{label} has more than {schema['maxItems']} items"
-    if "minItems" in schema and len(value) < schema["minItems"]:
+    if fewest is not None and len(value) < fewest:
         return f"{label} has fewer than {schema['minItems']} items"
-    items = schema.get("items")
-    if isinstance(items, dict):
+    if "items" in schema:
         for index, item in enumerate(value):
-            error = _check(item, items, f"{where}[{index}]")
+            error = _check(item, schema["items"], f"{where}[{index}]")
             if error:
                 return error
     return None
 
 
 def _check_object(value: dict[str, Any], schema: dict[str, Any], where: str) -> str | None:
-    properties: dict[str, Any] = schema.get("properties", {})
+    properties = schema.get("properties")
+    properties = properties if isinstance(properties, dict) else {}
+    required = schema.get("required")
     prefix = f"{where}." if where else ""
-    for name in schema.get("required", []):
-        if name not in value:
+    for name in required if isinstance(required, list) else []:
+        if isinstance(name, str) and name not in value:
             return f"missing required property '{prefix}{name}'"
     for name, item in value.items():
         if name in properties:

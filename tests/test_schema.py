@@ -115,3 +115,39 @@ def test_a_spec_with_its_own_schema_validates_with_it(workspace: Path) -> None:
     assert rejected.rejected and "maximum" in (rejected.error or "")
     accepted = registry.execute(ToolCall("ext", {"n": 2}))
     assert accepted.ok and calls == [{"n": 2}]
+
+
+@pytest.mark.parametrize(
+    ("schema", "args"),
+    [
+        ({"type": "object", "properties": {"note": True}}, {"note": "x"}),
+        ({"type": "object", "properties": {"note": False}}, {"note": "x"}),
+        ({"type": "object", "required": "note"}, {}),
+        ({"type": "object", "properties": {"n": {"minimum": "zero"}}}, {"n": 1}),
+        ({"type": "object", "properties": {"n": {"items": True, "type": "array"}}}, {"n": [1]}),
+    ],
+)
+def test_odd_external_schemas_never_crash_execute(
+    workspace: Path, schema: dict[str, Any], args: dict[str, Any]
+) -> None:
+    """Found by the Step 2 review: a boolean subschema crashed the runtime loop."""
+    registry = ToolRegistry(workspace)
+    registry.register(
+        ToolSpec(
+            name="ext",
+            description="external",
+            permission=Permission.READ_ONLY,
+            required_args={},
+            run=lambda **kwargs: "ran",
+            schema=schema,
+        )
+    )
+    obs = registry.execute(ToolCall("ext", args))
+    assert isinstance(obs.ok, bool)
+    if not obs.ok:
+        assert obs.rejected
+
+
+def test_a_false_subschema_rejects_the_property() -> None:
+    error = validate_json_schema({"note": "x"}, {"type": "object", "properties": {"note": False}})
+    assert error is not None and "'note'" in error

@@ -505,7 +505,14 @@ class ToolRegistry:
             return Observation(
                 tool=call.tool, ok=False, rejected=True, error=f"unknown tool '{call.tool}'"
             )
-        schema_error = spec.validate(call.args)
+        try:
+            schema_error = spec.validate(call.args)
+        except Exception as exc:
+            # A schema from an external server that cannot be applied refuses
+            # the call; it must never crash the runtime loop.
+            schema_error = (
+                f"{spec.name}: the tool's schema could not be applied ({type(exc).__name__})"
+            )
         if schema_error:
             return Observation(tool=call.tool, ok=False, rejected=True, error=schema_error)
 
