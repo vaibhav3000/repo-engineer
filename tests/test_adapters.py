@@ -182,7 +182,7 @@ def anthropic_reply() -> dict[str, Any]:
         "id": "msg_1",
         "type": "message",
         "role": "assistant",
-        "model": "claude-test",
+        "model": "messages-test-model",
         "content": [
             {"type": "text", "text": "Reading the other file."},
             {"type": "tool_use", "id": "toolu_2", "name": "read_file", "input": {"path": "b.py"}},
@@ -205,7 +205,7 @@ def anthropic_adapter(recorder: Recorder) -> Any:
     client = anthropic.Anthropic(
         api_key="test-key", http_client=recorder.http_client(), max_retries=0
     )
-    return AnthropicAdapter("claude-test", client=client, backoff_s=0.0)
+    return AnthropicAdapter("messages-test-model", client=client, backoff_s=0.0)
 
 
 def test_anthropic_sends_native_tools_and_the_conversation() -> None:
