@@ -660,7 +660,7 @@ class ToolRegistry:
         shown = self._display(path)
         if not path.is_file():
             raise FileNotFoundError(f"not a file: {shown}")
-        text = self._read_text(path)
+        text, newline = self._read_text(path)
         occurrences = text.count(old_text)
         if occurrences == 0:
             raise ValueError(f"apply_edit: old_text not found in {shown}")
@@ -669,16 +669,19 @@ class ToolRegistry:
                 f"apply_edit: old_text matches {occurrences} times in {shown}; "
                 "edits must be unambiguous"
             )
-        self._write_text(path, text.replace(old_text, new_text, 1), create=False)
+        # Encode before opening: a failure must not leave a truncated file.
+        data = _encode(text.replace(old_text, new_text, 1), newline)
+        self._write_bytes(path, data, create=False)
         return f"edited {shown}: 1 replacement"
 
     def _write_file(self, path: Path, content: str) -> str:
         shown = self._display(path)
         if path.exists():
             raise ValueError(f"write_file refuses to overwrite existing {shown}; use apply_edit")
+        data = _encode(content, "\n")  # new files use LF on every platform
         self._require_direct(path)  # before mkdir, which would follow a swapped-in link
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._write_text(path, content, create=True)
+        self._write_bytes(path, data, create=True)
         return f"created {shown} ({len(content)} chars)"
 
     # ------------------------------------------------------------- link-safe file access
@@ -698,20 +701,23 @@ class ToolRegistry:
                 "junction or other alias"
             )
 
-    def _read_text(self, path: Path) -> str:
+    def _read_text(self, path: Path) -> tuple[str, str]:
+        """The file's text with \n line endings, and the line ending it uses."""
         self._require_direct(path)
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        with os.fdopen(fd, encoding="utf-8") as handle:
-            return handle.read()
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as handle:
+            data = handle.read()
+        newline = "\r\n" if b"\r\n" in data else "\n"
+        return data.decode("utf-8").replace("\r\n", "\n"), newline
 
-    def _write_text(self, path: Path, text: str, *, create: bool) -> None:
-        """Write text; with create=True, fail rather than replace an existing file."""
+    def _write_bytes(self, path: Path, data: bytes, *, create: bool) -> None:
+        """Write bytes; with create=True, fail rather than replace an existing file."""
         self._require_direct(path)
-        flags = os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_WRONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
         flags |= (os.O_CREAT | os.O_EXCL) if create else os.O_TRUNC
         fd = os.open(path, flags, 0o644)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
 
     def _git_diff(self) -> str:
         """Diff against the snapshot taken when the registry was created.
@@ -1008,6 +1014,14 @@ class ToolRegistry:
         """Workspace-relative POSIX form of a jailed path ('.' for the root)."""
         rel = path.relative_to(self.workspace).as_posix()
         return rel if rel else "."
+
+
+def _encode(text: str, newline: str) -> bytes:
+    """UTF-8 bytes with the given line ending; ValueError if text cannot be encoded."""
+    try:
+        return text.replace("\n", newline).encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"text cannot be encoded as UTF-8 ({exc.reason})") from exc
 
 
 def glob_match(pattern: Sequence[str], parts: Sequence[str]) -> bool:

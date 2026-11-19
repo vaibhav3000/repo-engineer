@@ -78,3 +78,45 @@ def test_write_file_never_replaces_a_file_that_appears_meanwhile(workspace: Path
     obs = reg.execute(ToolCall("write_file", {"path": "app.py", "content": "clobbered"}))
     assert not obs.ok
     assert (workspace / "app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
+# Found by the post-fix adversarial review: a lone surrogate cannot be encoded
+# as UTF-8, and the file used to be truncated before the encoding failed.
+LONE_SURROGATE = "\ud83d"
+
+
+def test_an_unencodable_edit_leaves_the_file_intact(workspace: Path) -> None:
+    edit = ToolCall(
+        "apply_edit", {"path": "app.py", "old_text": "VALUE = 1", "new_text": LONE_SURROGATE}
+    )
+    before = (workspace / "app.py").read_bytes()
+    obs = ToolRegistry(workspace).execute(edit)
+    assert not obs.ok
+    assert (workspace / "app.py").read_bytes() == before
+
+
+def test_an_unencodable_new_file_is_not_created(workspace: Path) -> None:
+    write = ToolCall("write_file", {"path": "new.py", "content": LONE_SURROGATE})
+    obs = ToolRegistry(workspace).execute(write)
+    assert not obs.ok
+    assert not (workspace / "new.py").exists()
+
+
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"], ids=["lf", "crlf"])
+def test_edits_keep_the_file_line_endings(workspace: Path, newline: bytes) -> None:
+    (workspace / "mod.py").write_bytes(b"A = 1" + newline + b"B = 2" + newline)
+    edit = ToolCall(
+        "apply_edit", {"path": "mod.py", "old_text": "B = 2", "new_text": "B = 3\nC = 4"}
+    )
+    obs = ToolRegistry(workspace).execute(edit)
+    assert obs.ok, obs
+    expected = b"A = 1" + newline + b"B = 3" + newline + b"C = 4" + newline
+    assert (workspace / "mod.py").read_bytes() == expected
+
+
+def test_new_files_use_lf_line_endings(workspace: Path) -> None:
+    obs = ToolRegistry(workspace).execute(
+        ToolCall("write_file", {"path": "new.py", "content": "A = 1\nB = 2\n"})
+    )
+    assert obs.ok, obs
+    assert (workspace / "new.py").read_bytes() == b"A = 1\nB = 2\n"
