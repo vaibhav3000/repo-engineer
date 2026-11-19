@@ -176,3 +176,32 @@ def test_a_custom_sandbox_image_reaches_the_docker_sandbox(
     )
     sandbox = cli.sandbox_from(args)
     assert isinstance(sandbox, DockerSandbox) and sandbox.image == "team/tests:1"
+
+
+def test_apply_is_refused_when_a_change_could_not_be_compared(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Found by the Step 2 review: an unreadable file used to become a deletion."""
+    big = {"path": "notes.txt", "content": "\u00e9" * 600_000}  # 1.2 MB of UTF-8
+    adapter = ScriptedAdapter()
+    adapter.replies.insert(
+        0,
+        ModelReply("", (ModelToolCall("c0", "write_file", big, ""),), "tool_use", Usage(1, 1), "m"),
+    )
+    monkeypatch.setattr(cli, "create_adapter", lambda *args, **kwargs: adapter)
+    before = sorted(p.name for p in repo.rglob("*"))
+    assert cli.main(run_args(repo, tmp_path / "out", "--apply")) == 2
+    assert "could not be compared" in capsys.readouterr().err
+    assert sorted(p.name for p in repo.rglob("*")) == before
+    assert "len(items) - 1" in (repo / "shop" / "cart.py").read_text(encoding="utf-8")
+
+
+def test_apply_honours_protected_paths(repo: Path) -> None:
+    patch = (
+        "--- a/tests/test_cart.py\n+++ b/tests/test_cart.py\n"
+        "@@ -1 +1 @@\n-"
+        + (repo / "tests" / "test_cart.py").read_text(encoding="utf-8").splitlines()[0]
+        + "\n+import os\n"
+    )
+    with pytest.raises(ValueError, match="protected"):
+        cli._apply(repo, patch, ["tests/"])

@@ -160,7 +160,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     (out / f"{run_id}.state.json").write_text(
         json.dumps(state.to_dict(), indent=2), encoding="utf-8"
     )
-    patch = registry.snapshot.diff()
+    patch, not_compared = registry.snapshot.diff_report()
     patch_path = out / f"{run_id}.patch"
     patch_path.write_text(
         "" if patch == "(no changes)" else patch + "\n", encoding="utf-8", newline="\n"
@@ -169,10 +169,17 @@ def cmd_run(args: argparse.Namespace) -> int:
         f"{state.state.value}: verified={state.verified} steps={state.steps_used} sandbox={sandbox.name}"
     )
     print(f"trace: {trace_path}\npatch: {patch_path}")
+    if not_compared:
+        print("not compared (too large or over the size budget): " + ", ".join(not_compared))
     if not state.verified:
         return 1
+    if args.apply and not_compared:
+        raise ValueError(
+            "refusing --apply: some changed files could not be compared, so the patch is "
+            "incomplete: " + ", ".join(not_compared)
+        )
     if args.apply and patch != "(no changes)":
-        _apply(repo, patch)
+        _apply(repo, patch, args.protect)
     return 0
 
 
@@ -189,9 +196,14 @@ def _planner(args: argparse.Namespace) -> Planner:
     return NativeToolPlanner(adapter, context_budget_tokens=args.context_budget)
 
 
-def _apply(repo: Path, patch: str) -> None:
-    """Apply the verified patch to the original repository, dry run first."""
+def _apply(repo: Path, patch: str, protect: Sequence[str] = ()) -> None:
+    """Apply the verified patch to the original repository, dry run first.
+
+    The task's protected paths are protected here too, so the patch can only
+    change what the agent was allowed to change.
+    """
     registry = ToolRegistry(repo)
+    registry.protect(protect)
     for dry_run in (True, False):
         observation = registry.execute(
             ToolCall("apply_patch", {"patch": patch, "dry_run": dry_run})

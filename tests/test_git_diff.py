@@ -64,3 +64,45 @@ def test_does_not_show_changes_outside_the_workspace(tmp_path: Path, workspace: 
     reg = ToolRegistry(workspace)
     (tmp_path / "private_notes.txt").write_text("outside change\n", encoding="utf-8")
     assert diff(reg) == "(no changes)"
+
+
+# Found by the Step 2 review: files the snapshot could not read (over the
+# per-file cap, or past the total budget) came out of the diff as deletions,
+# and `run --apply` then deleted them from the original repository.
+
+
+def test_a_file_that_grows_past_the_size_cap_is_not_a_deletion(tmp_path: Path) -> None:
+    from repo_engineer import snapshot
+
+    (tmp_path / "log.md").write_text("x\n", encoding="utf-8")
+    snap = snapshot.WorkspaceSnapshot(tmp_path)
+    (tmp_path / "log.md").write_text("x\n" * (snapshot.MAX_FILE_BYTES // 2 + 1), encoding="utf-8")
+    text, not_compared = snap.diff_report()
+    assert "/dev/null" not in text and not_compared == ["log.md"]
+
+
+def test_a_file_pushed_past_the_budget_is_not_a_deletion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from repo_engineer import snapshot
+
+    monkeypatch.setattr(snapshot, "MAX_TOTAL_BYTES", 100)
+    (tmp_path / "b.txt").write_text("b" * 60, encoding="utf-8")
+    (tmp_path / "z.txt").write_text("z" * 30, encoding="utf-8")
+    snap = snapshot.WorkspaceSnapshot(tmp_path)
+    (tmp_path / "a.txt").write_text("a" * 30, encoding="utf-8")  # sorts first, moves the cut-off
+    text, not_compared = snap.diff_report()
+    assert "+++ b/a.txt" in text
+    assert "z.txt" not in text and not_compared == ["z.txt"]
+
+
+def test_real_deletions_and_untouched_large_files(tmp_path: Path) -> None:
+    from repo_engineer import snapshot
+
+    (tmp_path / "gone.txt").write_text("bye\n", encoding="utf-8")
+    (tmp_path / "big.bin").write_bytes(b"x" * (snapshot.MAX_FILE_BYTES + 1))
+    snap = snapshot.WorkspaceSnapshot(tmp_path)
+    (tmp_path / "gone.txt").unlink()
+    text, not_compared = snap.diff_report()
+    assert "--- a/gone.txt\n+++ /dev/null" in text
+    assert not_compared == []  # the large file did not change

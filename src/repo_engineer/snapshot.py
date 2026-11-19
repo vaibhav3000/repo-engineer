@@ -152,6 +152,9 @@ class WorkspaceSnapshot:
         self.root = root
         self.files = read_tree(root)
         self.paths = list_files(root)
+        # The paths the diff covers, and size/mtime of those it could not read.
+        self.tree_paths = list_files(root, skip=SKIPPED_DIRS)
+        self.stats = {rel: _stat(root / rel) for rel in self.tree_paths if rel not in self.files}
         self.links = _links(root)
         self.caches = _cache_dirs(root)
         self.pinned: dict[str, bytes] = {}
@@ -171,15 +174,44 @@ class WorkspaceSnapshot:
             self.pinned[rel] = data
 
     def diff(self) -> str:
-        """Unified diff from the snapshot to the current tree, sorted by path."""
+        """Unified diff from the snapshot to the current tree, with a note on
+        files that could not be compared."""
+        text, not_compared = self.diff_report()
+        if not_compared:
+            text += (
+                "\n(not compared, too large or over the size budget: "
+                + ", ".join(not_compared)
+                + ")"
+            )
+        return text
+
+    def diff_report(self) -> tuple[str, list[str]]:
+        """The unified diff and the paths that could not be compared.
+
+        A file is a deletion only if it no longer exists. A file that exists
+        but was not read (over the per-file cap or past the total budget) on
+        either side is never reported as deleted or created: it is listed as
+        not compared, unless it was unread on both sides and its size and
+        modification time are unchanged.
+        """
         current = read_tree(self.root)
+        now_paths = list_files(self.root, skip=SKIPPED_DIRS)
         chunks: list[str] = []
-        for rel in sorted(set(self.files) | set(current)):
+        not_compared: list[str] = []
+        for rel in sorted(self.tree_paths | now_paths):
             before, after = self.files.get(rel), current.get(rel)
+            existed, exists = rel in self.tree_paths, rel in now_paths
+            unread = (existed and before is None) or (exists and after is None)
+            if unread:
+                if existed and exists and before is None and after is None:
+                    if self.stats.get(rel) == _stat(self.root / rel):
+                        continue
+                not_compared.append(rel)
+                continue
             if before == after:
                 continue
             chunks.append(_file_diff(rel, before, after))
-        return "\n".join(chunks) if chunks else "(no changes)"
+        return ("\n".join(chunks) if chunks else "(no changes)"), not_compared
 
     def remove_new_links(self) -> list[str]:
         """Remove links and junctions that did not exist when the snapshot was taken."""
@@ -233,6 +265,14 @@ class WorkspaceSnapshot:
             target.write_bytes(original)
             touched.append(rel)
         return touched
+
+
+def _stat(path: Path) -> tuple[int, int] | None:
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return info.st_size, info.st_mtime_ns
 
 
 def _file_diff(rel: str, before: bytes | None, after: bytes | None) -> str:
