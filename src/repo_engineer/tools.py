@@ -17,17 +17,20 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
-from collections.abc import Callable
+import xml.etree.ElementTree as ElementTree
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from .jail import JailViolation, path_components
-from .process import child_env, run_bounded
+from .process import ProcessResult, child_env, run_bounded
 from .redaction import Redactor
 from .snapshot import WorkspaceSnapshot
 from .state import Observation, ToolCall
@@ -100,6 +103,55 @@ PYTEST_CONFIG_FILES = (
     ("tox.ini", "[pytest]"),
     ("setup.cfg", "[tool:pytest]"),
 )
+
+
+# Files that change how pytest collects, configures or imports tests. The agent
+# may never write them, and the runtime restores (or removes) them before VERIFY.
+PYTEST_CONTROL_FILES = frozenset(
+    {
+        "conftest.py",
+        "pytest.ini",
+        ".pytest.ini",
+        "pyproject.toml",
+        "setup.cfg",
+        "tox.ini",
+        "pytest.py",
+        "sitecustomize.py",
+        "usercustomize.py",
+    }
+)
+
+
+def controls_pytest(rel: str) -> bool:
+    """True for a workspace path whose file name can steer a pytest run."""
+    name = rel.rsplit("/", 1)[-1].lower()
+    return name in PYTEST_CONTROL_FILES or name.endswith(".pth")
+
+
+@dataclass(frozen=True)
+class JUnitSummary:
+    """Counts from the JUnit XML report pytest writes for a verification run."""
+
+    tests: int
+    failures: int
+    errors: int
+    skipped: int
+
+    @property
+    def passed(self) -> int:
+        return self.tests - self.failures - self.errors - self.skipped
+
+
+@dataclass(frozen=True)
+class Verification:
+    """Outcome of ToolRegistry.verify()."""
+
+    passed: bool
+    observation: Observation
+    reason: str  # why it failed; empty when it passed
+    restored: tuple[str, ...]  # protected paths put back before the run
+    mutants_total: int
+    mutants_killed: int
 
 
 @dataclass(frozen=True)
@@ -191,6 +243,7 @@ class ToolRegistry:
         self.search_timeout_s = search_timeout_s
         self.redact = Redactor(self.workspace)
         self.snapshot = WorkspaceSnapshot(self.workspace)
+        self.protected_prefixes: tuple[str, ...] = ()
         self.specs: dict[str, ToolSpec] = {}
         self._register_defaults()
 
@@ -412,7 +465,50 @@ class ToolRegistry:
         for name in spec.glob_args:
             if name in jailed:
                 jailed[name] = self.jailed_glob(jailed[name])
+        if spec.permission is Permission.MUTATING:
+            for name in spec.path_args:
+                if name in jailed:
+                    self._check_writable(jailed[name])
         return jailed
+
+    # ------------------------------------------------------------- protected paths
+
+    def protect(self, paths: Iterable[str]) -> None:
+        """Make task paths (files or directory prefixes) read-only to the agent.
+
+        Protected paths, like pytest control files, are also restored from the
+        starting snapshot before every verification run.
+        """
+        prefixes = {"/".join(path_components(raw)).lower() for raw in paths}
+        self.protected_prefixes = tuple(sorted(prefix for prefix in prefixes if prefix))
+
+    def is_protected(self, rel: str) -> bool:
+        low = rel.lower()
+        return any(low == p or low.startswith(p + "/") for p in self.protected_prefixes)
+
+    def _check_writable(self, path: Path) -> None:
+        rel = self._display(path)
+        if controls_pytest(rel):
+            raise JailViolation(
+                f"path rejected: {rel!r} controls how pytest runs and is read-only to the agent"
+            )
+        if self.is_protected(rel):
+            raise JailViolation(
+                f"path rejected: {rel!r} is protected by the task and read-only to the agent"
+            )
+
+    def restore_protected(self) -> list[str]:
+        """Put protected paths and pytest control files back as they started.
+
+        Changed files are rewritten, deleted ones recreated, and ones created
+        during the run (by the agent's test code, say) removed, together with
+        any links or junctions that did not exist at the start.
+        """
+        restored = self.snapshot.remove_new_links()
+        restored += self.snapshot.restore(
+            lambda rel: controls_pytest(rel) or self.is_protected(rel)
+        )
+        return restored
 
     def _ask_approval(self, spec: ToolSpec, args: dict[str, Any]) -> str | None:
         """Ask the approver; return None when approved, else the denial reason.
@@ -609,6 +705,108 @@ class ToolRegistry:
             exit_code=result.exit_code,
         )
 
+    # ------------------------------------------------------------- verification
+
+    def verify(self, cmd: str, mutants: Sequence[Mapping[str, str]] = ()) -> Verification:
+        """Run the verification suite on a workspace the agent cannot have steered.
+
+        Protected paths and pytest control files are restored first. The suite
+        must exit 0 AND pytest's JUnit report, written outside the workspace,
+        must show at least one passing test and no failures or errors, so code
+        that ends the process early with status 0 does not count as a pass.
+        Each seeded mutant (an exact one-place edit of a protected file) must
+        then make the suite fail, which rejects vacuous tests.
+
+        Code under test still runs in the same process as pytest, so a
+        determined agent could forge the report itself; only running the
+        verifier outside the agent's reach (Step 2 sandbox) closes that.
+        """
+        restored = tuple(self.restore_protected())
+        total = len(mutants)
+        try:
+            args = self.parse_test_command(cmd)
+        except JailViolation as exc:
+            rejected = Observation(
+                tool="run_tests", ok=False, rejected=True, error=self.redact(str(exc))
+            )
+            return Verification(
+                False, rejected, f"verify command rejected: {exc}", restored, total, 0
+            )
+        observation, report = self._verification_run(args)
+        reason = _verification_failure(observation, report)
+        if reason:
+            return Verification(False, observation, reason, restored, total, 0)
+        killed, survivors = self._run_mutants(args, mutants)
+        if survivors:
+            reason = "the tests did not detect seeded mutants: " + "; ".join(survivors)
+            return Verification(False, observation, reason, restored, total, killed)
+        return Verification(True, observation, "", restored, total, killed)
+
+    def _verification_run(self, args: list[str]) -> tuple[Observation, JUnitSummary | None]:
+        report_dir = Path(tempfile.mkdtemp(prefix="repo_engineer_verify_"))
+        report_path = report_dir / "junit.xml"
+        try:
+            result = run_bounded(
+                self.pytest_argv(args, extra=(f"--junitxml={report_path}",)),
+                cwd=self.workspace,
+                env=child_env(),
+                timeout_s=self.exec_timeout_s,
+            )
+            report = _read_junit(report_path)
+        finally:
+            shutil.rmtree(report_dir, ignore_errors=True)
+        return self._command_observation(result), report
+
+    def _run_mutants(
+        self, args: list[str], mutants: Sequence[Mapping[str, str]]
+    ) -> tuple[int, list[str]]:
+        """Apply each mutant to its pristine file, run the suite, put the file back."""
+        killed = 0
+        survivors: list[str] = []
+        for mutant in mutants:
+            name = str(mutant.get("name") or mutant.get("find", "unnamed"))
+            rel = "/".join(path_components(mutant["path"]))
+            original = self.snapshot.files.get(rel)
+            text = original.decode("utf-8") if original is not None else ""
+            if original is None or text.count(mutant["find"]) != 1:
+                survivors.append(f"{name} (the mutant does not apply to {rel})")
+                continue
+            target = self.workspace / rel
+            target.write_bytes(text.replace(mutant["find"], mutant["replace"], 1).encode("utf-8"))
+            try:
+                observation, report = self._verification_run(args)
+            finally:
+                target.write_bytes(original)
+            detected = (
+                observation.exit_code == 1
+                and report is not None
+                and report.failures + report.errors > 0
+            )
+            if detected:
+                killed += 1
+            else:
+                survivors.append(name)
+        return killed, survivors
+
+    def _command_observation(self, result: ProcessResult) -> Observation:
+        """Observation for a runtime-initiated pytest run, formatted like run_tests."""
+        output = self.redact(_note_omitted(result.output, result.omitted_bytes))
+        if result.timed_out or result.exit_code is None:
+            return Observation(
+                tool="run_tests",
+                ok=False,
+                output_excerpt=_tail(output, OUTPUT_LIMIT),
+                error=f"command timed out after {self.exec_timeout_s:.0f}s; "
+                "the process tree was killed",
+            )
+        prefix = f"exit={result.exit_code}\n"
+        return Observation(
+            tool="run_tests",
+            ok=True,
+            output_excerpt=prefix + _tail(output, OUTPUT_LIMIT - len(prefix)),
+            exit_code=result.exit_code,
+        )
+
     # ------------------------------------------------------------- run_tests command
 
     def parse_test_command(self, cmd: str) -> list[str]:
@@ -750,6 +948,41 @@ def _split_command(cmd: str) -> list[str]:
     lexer.escape = ""
     lexer.commenters = ""
     return list(lexer)
+
+
+def _read_junit(path: Path) -> JUnitSummary | None:
+    """Totals from a JUnit XML report, or None when it is missing or unreadable."""
+    try:
+        root = ElementTree.parse(path).getroot()
+    except (OSError, ElementTree.ParseError):
+        return None
+    suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+    if not suites:
+        return None
+    try:
+        return JUnitSummary(
+            tests=sum(int(s.get("tests", 0)) for s in suites),
+            failures=sum(int(s.get("failures", 0)) for s in suites),
+            errors=sum(int(s.get("errors", 0)) for s in suites),
+            skipped=sum(int(s.get("skipped", 0)) for s in suites),
+        )
+    except ValueError:
+        return None
+
+
+def _verification_failure(observation: Observation, report: JUnitSummary | None) -> str:
+    """Why a verification run does not count as a pass; empty when it does."""
+    if observation.exit_code is None:
+        return observation.error or "the verification run did not finish"
+    if observation.exit_code != 0:
+        return f"the suite exited with status {observation.exit_code}"
+    if report is None:
+        return "pytest exited 0 but wrote no test report, so the run cannot be trusted"
+    if report.failures or report.errors:
+        return "the test report lists failures or errors despite exit status 0"
+    if report.passed < 1:
+        return "no test passed"
+    return ""
 
 
 def _tail(text: str, limit: int) -> str:

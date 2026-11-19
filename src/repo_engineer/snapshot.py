@@ -51,6 +51,25 @@ def read_tree(root: Path) -> dict[str, bytes]:
     return files
 
 
+def _links(root: Path) -> list[str]:
+    """POSIX relative paths of links and junctions under root (not followed)."""
+    found: list[str] = []
+    for directory, dirnames, filenames in os.walk(root, followlinks=False):
+        kept: list[str] = []
+        for name in dirnames:
+            path = Path(directory, name)
+            if not _is_direct(path):
+                found.append(path.relative_to(root).as_posix())
+            elif name.lower() not in SKIPPED_DIRS:
+                kept.append(name)
+        dirnames[:] = kept
+        for name in filenames:
+            path = Path(directory, name)
+            if not _is_direct(path):
+                found.append(path.relative_to(root).as_posix())
+    return found
+
+
 def _is_direct(path: Path) -> bool:
     return os.path.normcase(os.path.realpath(path)) == os.path.normcase(str(path))
 
@@ -61,6 +80,22 @@ class WorkspaceSnapshot:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.files = read_tree(root)
+        self.links = set(_links(root))
+
+    def remove_new_links(self) -> list[str]:
+        """Remove links and junctions that did not exist when the snapshot was taken.
+
+        Only the link itself is removed, never what it points to.
+        """
+        removed: list[str] = []
+        for rel in sorted(set(_links(self.root)) - self.links):
+            link = self.root / rel
+            try:
+                link.unlink()
+            except (IsADirectoryError, PermissionError):
+                os.rmdir(link)  # a Windows junction or directory symlink
+            removed.append(rel)
+        return removed
 
     def diff(self) -> str:
         """Unified diff from the snapshot to the current tree, sorted by path."""

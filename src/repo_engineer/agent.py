@@ -48,6 +48,7 @@ class AgentRuntime:
             workspace=str(self.registry.workspace),
         )
         machine = StateMachine(state, max_steps=self.max_steps, max_replans=self.max_replans)
+        self.registry.protect(task.get("protected_paths", []))
         machine.transition(State.ANALYZE_REPO)
         state.actions.append({"step": "analyze", "tool": "list_tree"})
         tree = self.registry.execute(ToolCall("list_tree", {}))
@@ -105,8 +106,14 @@ class AgentRuntime:
                 )
 
                 if action.tool == "run_tests":
-                    passed = observation.ok and "exit=0" in observation.output_excerpt
-                    state.test_results.append({"passed": passed, "exit_ok": observation.ok})
+                    passed = observation.ok and observation.exit_code == 0
+                    state.test_results.append(
+                        {
+                            "passed": passed,
+                            "exit_ok": observation.ok,
+                            "exit_code": observation.exit_code,
+                        }
+                    )
                     if passed:
                         machine.transition(State.VERIFY)
                     elif machine.can_replan():
@@ -129,13 +136,28 @@ class AgentRuntime:
                     machine.transition(State.PLAN)
                     continue
 
-            # VERIFY reached: re-run the test suite as final evidence.
+            # VERIFY reached: the runtime restores protected files and re-runs
+            # the suite itself; only its evidence can open COMPLETE.
             state.steps_used += 1
-            verify = self.registry.execute(
-                ToolCall("run_tests", {"cmd": task.get("verify_cmd", "python -m pytest tests/ -q")})
+            verify_cmd = task.get("verify_cmd", "python -m pytest tests/ -q")
+            result = self.registry.verify(verify_cmd, task.get("mutants", []))
+            state.actions.append(
+                {"step": "verify", "tool": "run_tests", "args": {"cmd": verify_cmd}}
             )
-            passed = verify.ok and "exit=0" in verify.output_excerpt
-            state.test_results.append({"verify": True, "passed": passed})
+            state.observations.append(_observation_dict(result.observation))
+            state.test_results.append(
+                {
+                    "verify": True,
+                    "passed": result.passed,
+                    "exit_code": result.observation.exit_code,
+                    "restored": list(result.restored),
+                    "mutants_total": result.mutants_total,
+                    "mutants_killed": result.mutants_killed,
+                }
+            )
+            if not result.passed:
+                state.errors.append(f"verification failed: {result.reason}")
+            passed = result.passed
             state.verified = passed
             if passed:
                 machine.transition(State.COMPLETE)
@@ -179,7 +201,8 @@ def _observation_dict(observation: Observation) -> dict[str, Any]:
         "ok": observation.ok,
         "rejected": observation.rejected,
         "error": observation.error,
-        "output_excerpt": observation.output_excerpt[:500],
+        "exit_code": observation.exit_code,
+        "output_excerpt": observation.output_excerpt,
     }
 
 
