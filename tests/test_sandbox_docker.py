@@ -244,3 +244,27 @@ def test_a_timeout_removes_the_container(workspace: Path) -> None:
 def test_the_registry_verifies_inside_docker(workspace: Path) -> None:
     result = ToolRegistry(workspace, sandbox=DockerSandbox()).verify("python -m pytest -q tests/")
     assert result.passed, result.reason
+
+
+def test_a_daemon_error_message_does_not_carry_the_nonce(workspace: Path) -> None:
+    def runner(argv: Sequence[str], **_kwargs: object) -> ProcessResult:
+        nonce = list(argv)[list(argv).index("-c") + 2]
+        return ProcessResult(125, f"Error response from daemon\n{nonce} -\n", False, 0)
+
+    sandbox = DockerSandbox(
+        docker_cmd=["docker"],
+        image="i",
+        runner=runner,
+        call=FakeDocker(ProcessResult(0, "", False, 0)).call,
+    )
+    with pytest.raises(SandboxError) as info:
+        sandbox.run_pytest(workspace, invocation(), 30.0)
+    assert "Error response from daemon" in str(info.value) and " -" not in str(info.value)
+
+
+@needs_docker
+def test_test_code_exiting_with_dockers_own_statuses_is_a_test_failure(workspace: Path) -> None:
+    """Found by the Step 2 review: os._exit(125) in test code looked like a Docker failure."""
+    write_test(workspace, "test_exit.py", "import os\n\n\ndef test_exit():\n    os._exit(125)\n")
+    run = DockerSandbox().run_pytest(workspace, invocation("-q", "./tests/test_exit.py"), 120.0)
+    assert run.exit_code == 1 and "status 125" in run.output

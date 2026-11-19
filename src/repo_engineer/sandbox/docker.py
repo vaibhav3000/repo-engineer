@@ -70,7 +70,9 @@ CONTAINER_ENV = {
 
 # Runs pytest under the test deadline, then prints the JUnit report behind the
 # nonce ("timeout" when the deadline passed first). A signal death of pytest
-# (the OOM killer, say) becomes the usual 128+N exit status.
+# (the OOM killer, say) becomes the usual 128+N exit status, and the statuses
+# docker run keeps for itself (125 to 127) become 1, so test code cannot pass
+# its own failure off as a Docker failure.
 WRAPPER = f"""\
 import base64, subprocess, sys
 nonce, deadline = sys.argv[1], float(sys.argv[2])
@@ -83,6 +85,9 @@ except subprocess.TimeoutExpired:
     sys.stdout.write("\\n" + nonce + " timeout\\n")
     sys.stdout.flush()
     sys.exit(124)
+if rc in (125, 126, 127):
+    print("test code exited with status " + str(rc) + "; reported as 1")
+    rc = 1
 sys.stdout.flush()
 try:
     with open({REPORT_PATH!r}, "rb") as handle:
@@ -380,9 +385,9 @@ class DockerSandbox:
         finally:
             # Killing the CLI does not stop a container; this does, on every path.
             self._remove(name)
-        if result.exit_code == 125:
-            raise SandboxError(f"docker could not run the sandbox: {result.output.strip()[-1000:]}")
         output, report_bytes, deadline_passed = split_report(result.output, nonce)
+        if result.exit_code == 125:
+            raise SandboxError(f"docker could not run the sandbox: {output.strip()[-1000:]}")
         report = parse_junit(report_bytes) if invocation.junit and report_bytes else None
         timed_out = result.timed_out or deadline_passed
         return SandboxRun(
