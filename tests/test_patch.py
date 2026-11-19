@@ -178,3 +178,15 @@ def test_files_written_by_a_patch_reach_the_trace(workspace: Path) -> None:
     )
     state = AgentRuntime(ToolRegistry(workspace), planner).run_task({"task_id": "t"})
     assert state.files_changed == ["app.py", "lib.py"] and state.verified
+
+
+def test_one_file_named_twice_is_refused_after_jailing(workspace: Path) -> None:
+    """Found by the Step 2 review: 'lib.py' and './lib.py' both applied."""
+    lib(workspace)
+    patch = (
+        "--- a/lib.py\n+++ b/lib.py\n@@ -1 +1 @@\n-VALUE = 1\n+A = 2\n"
+        "--- a/./lib.py\n+++ b/./lib.py\n@@ -1 +1 @@\n-VALUE = 1\n+A = 3\n"
+    )
+    obs = ToolRegistry(workspace).execute(ToolCall("apply_patch", {"patch": patch}))
+    assert not obs.ok and "twice" in (obs.error or "")
+    assert (workspace / "lib.py").read_text() == "VALUE = 1\n"

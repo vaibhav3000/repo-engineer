@@ -836,10 +836,15 @@ class ToolRegistry:
             raise ValueError(f"apply_patch: {exc}") from exc
         plans: list[tuple[Path, str, str | None, str | None, str]] = []
         report: list[str] = []
+        seen: set[str] = set()
         for file_patch in file_patches:
             target = self.jailed_path(file_patch.path)
             rel = self._display(target)
             self._check_writable(target)
+            # Compared after jailing: "lib.py" and "./lib.py" are one file.
+            if os.path.normcase(rel) in seen:
+                raise ValueError(f"apply_patch: the patch changes {rel} twice")
+            seen.add(os.path.normcase(rel))
             if target.exists() and not target.is_file():
                 raise ValueError(f"apply_patch: {rel} is not a file")
             original, newline = self._read_text(target) if target.exists() else (None, "\n")
