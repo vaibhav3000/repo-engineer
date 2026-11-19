@@ -65,11 +65,14 @@ class SymbolIndex:
         for path in sorted(sources):
             try:
                 tree = ast.parse(sources[path], filename=path)
-            except (SyntaxError, ValueError) as exc:
+                found = _definitions(tree, path)
+            except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+                # RecursionError: an expression nested deeper than the parser
+                # (or ast.unparse) can follow; such a file is listed, not fatal.
                 unparsed[path] = getattr(exc, "lineno", None) or 0
                 continue
             trees[path] = tree
-            symbols.extend(_definitions(tree, path))
+            symbols.extend(found)
         defined = {s.name for s in symbols}
         references = [
             ref for path, tree in trees.items() for ref in _references(tree, path, defined)
@@ -126,7 +129,12 @@ class SymbolIndex:
 
 def _file_block(path: str, symbols: list[Symbol], syntax_error_line: int | None) -> list[str]:
     if syntax_error_line is not None:
-        return [f"{path}  (does not parse: syntax error at line {syntax_error_line})"]
+        where = (
+            f"syntax error at line {syntax_error_line}"
+            if syntax_error_line
+            else "too deeply nested"
+        )
+        return [f"{path}  (does not parse: {where})"]
     rows = [path]
     for symbol in sorted(symbols, key=lambda s: s.line):
         indent = "    " if symbol.kind == "method" else "  "

@@ -97,8 +97,9 @@ class AgentRuntime:
         planner_task = {**task, "repo_tree": tree.output_excerpt}
         try:
             planner_task["repo_map"] = self.registry.repo_map_text()
-        except OSError as exc:
-            logger.warning("no repo map for the planner: %s", exc)
+        except Exception as exc:
+            # The map is an aid for the planner; a run never fails for want of it.
+            logger.warning("no repo map for the planner: %s: %s", type(exc).__name__, exc)
 
         history: list[dict[str, Any]] = []
         consecutive_planner_errors = 0
