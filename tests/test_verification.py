@@ -308,3 +308,30 @@ def test_files_planted_during_verify_cannot_kill_the_mutants(tmp_path: Path) -> 
     write = ToolCall("write_file", {"path": "tests/test_slug.py", "content": vacuous})
     state, _ = run_real_task(tmp_path, "task_03_add_missing_test", [write, None])
     assert state.state is State.FAILED and not state.verified
+
+
+def test_multi_line_mutants_apply_to_files_with_crlf_endings(tmp_path: Path) -> None:
+    """A Windows checkout may give task files CRLF endings; mutants are written with LF."""
+    ws = tmp_path / "ws"
+    (ws / "lib").mkdir(parents=True)
+    (ws / "tests").mkdir()
+    (ws / "lib" / "check.py").write_bytes(
+        b"def positive(n):\r\n    if n <= 0:\r\n        return False\r\n    return True\r\n"
+    )
+    (ws / "tests" / "test_check.py").write_text(
+        "from lib.check import positive\n\n\ndef test_positive():\n"
+        "    assert positive(1)\n    assert not positive(0)\n",
+        encoding="utf-8",
+    )
+    registry = ToolRegistry(ws)
+    registry.protect(["lib/"])
+    mutant = {
+        "name": "check removed",
+        "path": "lib/check.py",
+        "find": "    if n <= 0:\n        return False\n",
+        "replace": "",
+    }
+    result = registry.verify("python -m pytest -q tests/", [mutant])
+    assert result.passed, result.reason
+    assert result.mutants_killed == 1
+    assert (ws / "lib" / "check.py").read_bytes().count(b"\r\n") == 4  # restored as it was

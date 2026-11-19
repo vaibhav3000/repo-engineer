@@ -1078,7 +1078,12 @@ class ToolRegistry:
             name = str(variant.get("name") or variant.get("find", "unnamed"))
             rel = "/".join(path_components(variant["path"]))
             original = self.snapshot.pinned.get(rel, self.snapshot.files.get(rel))
-            text = original.decode("utf-8") if original is not None else ""
+            raw = original.decode("utf-8") if original is not None else ""
+            # Edits are written with "\n"; match them against the file's text
+            # with "\n" endings and write the result back in the file's own
+            # style, so a CRLF checkout behaves like an LF one.
+            newline = "\r\n" if "\r\n" in raw else "\n"
+            text = raw.replace("\r\n", "\n")
             if original is None or text.count(variant["find"]) != 1:
                 failures.append(f"{name} (the edit does not apply to {rel})")
                 continue
@@ -1087,7 +1092,8 @@ class ToolRegistry:
                 failures.append(f"{name} (edits must target a protected file, not {rel})")
                 continue
             target = self.workspace / rel
-            target.write_bytes(text.replace(variant["find"], variant["replace"], 1).encode("utf-8"))
+            edited = text.replace(variant["find"], variant["replace"], 1)
+            target.write_bytes(edited.replace("\n", newline).encode("utf-8"))
             try:
                 observation, report = self._verification_run(args)
             finally:
