@@ -2,12 +2,29 @@
 
 from __future__ import annotations
 
+import functools
 import os
 from pathlib import Path
 
 import pytest
 
+from repo_engineer.sandbox import DockerSandbox
 from repo_engineer.state import Observation
+
+
+@functools.cache
+def docker_ready() -> bool:
+    """True when a Linux Docker daemon answers and the sandbox image exists.
+
+    The image is built from its pinned recipe on first use. Set
+    REPO_ENGINEER_DOCKER_CMD when the engine is reached another way (for
+    example "wsl -d Ubuntu -e docker").
+    """
+    sandbox = DockerSandbox()
+    if not sandbox.available():
+        return False
+    sandbox.ensure_image()
+    return True
 
 
 def error_text(obs: Observation) -> str:

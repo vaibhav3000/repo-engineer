@@ -26,6 +26,7 @@ exclude = ["repo_engineer.benchmark.tasks*"]
 
 [tool.setuptools.package-data]
 "repo_engineer.benchmark" = ["tasks/**/*"]
+"repo_engineer.sandbox" = ["Dockerfile"]
 
 [tool.setuptools.exclude-package-data]
 "repo_engineer.benchmark" = ["**/__pycache__/*", "**/*.pyc"]

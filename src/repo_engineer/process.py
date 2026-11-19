@@ -75,6 +75,14 @@ def child_env(source: Mapping[str, str] | None = None) -> dict[str, str]:
 
 
 @dataclass(frozen=True)
+class JobLimits:
+    """Windows job object limits for a run's whole process tree (0 = no limit)."""
+
+    memory_bytes: int = 0  # committed memory of all processes together
+    active_processes: int = 0  # processes alive at once, the first one included
+
+
+@dataclass(frozen=True)
 class ProcessResult:
     exit_code: int | None  # None when the run was killed at the deadline
     output: str  # tail of combined stdout and stderr, with "\n" line endings
@@ -125,9 +133,14 @@ def run_bounded(
     env: Mapping[str, str],
     timeout_s: float,
     max_output_bytes: int = 262_144,
+    job_limits: JobLimits | None = None,
 ) -> ProcessResult:
-    """Run argv with no shell, a deadline, a bounded output tail and tree kill."""
-    group = _ProcessGroup()
+    """Run argv with no shell, a deadline, a bounded output tail and tree kill.
+
+    job_limits apply on Windows, where the whole tree runs in one job object;
+    POSIX limits are set by the command itself (see sandbox/_launcher.py).
+    """
+    group = _ProcessGroup(job_limits or JobLimits())
     proc = group.start(list(argv), cwd=cwd, env=dict(env))
     tail = _TailBuffer(max_output_bytes)
     assert proc.stdout is not None
@@ -168,9 +181,10 @@ class _ProcessGroup:
     parent is still alive.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, limits: JobLimits | None = None) -> None:
         self.proc: subprocess.Popen[bytes] | None = None
         self._job: int | None = None
+        self._limits = limits or JobLimits()
 
     def start(self, argv: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.Popen[bytes]:
         if sys.platform == "win32":
@@ -184,7 +198,7 @@ class _ProcessGroup:
                 shell=False,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | _CREATE_SUSPENDED,
             )
-            self._job = _job_for_suspended_process(proc.pid)
+            self._job = _job_for_suspended_process(proc.pid, self._limits)
         else:
             proc = subprocess.Popen(
                 argv,
@@ -225,6 +239,9 @@ class _ProcessGroup:
 
 _CREATE_SUSPENDED = 0x00000004
 _KILL_ON_JOB_CLOSE = 0x2000
+_LIMIT_ACTIVE_PROCESS = 0x0008
+_LIMIT_JOB_MEMORY = 0x0200
+_DIE_ON_UNHANDLED_EXCEPTION = 0x0400  # no error-reporting dialogs that hang the run
 _JOB_EXTENDED_LIMIT_INFORMATION_CLASS = 9
 
 if sys.platform == "win32":
@@ -284,11 +301,13 @@ if sys.platform == "win32":
             ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
-    def _job_for_suspended_process(pid: int) -> int | None:
+    def _job_for_suspended_process(pid: int, limits: JobLimits) -> int | None:
         """Put a suspended process in a new kill-on-close job, then resume it.
 
-        Returns the job handle, or None (with the process resumed) when the
-        job cannot be set up, in which case kill() falls back to taskkill.
+        The job also caps the tree's committed memory and the number of
+        processes alive at once when the limits ask for it. Returns the job
+        handle, or None (with the process resumed) when the job cannot be set
+        up, in which case kill() falls back to taskkill.
         """
         rights = 0x0100 | 0x0001 | 0x0800  # SET_QUOTA | TERMINATE | SUSPEND_RESUME
         process = _kernel32.OpenProcess(rights, False, pid)
@@ -299,7 +318,14 @@ if sys.platform == "win32":
             if not job:
                 return None
             info = _ExtendedLimitInformation()
-            info.BasicLimitInformation.LimitFlags = _KILL_ON_JOB_CLOSE
+            flags = _KILL_ON_JOB_CLOSE | _DIE_ON_UNHANDLED_EXCEPTION
+            if limits.memory_bytes > 0:
+                flags |= _LIMIT_JOB_MEMORY
+                info.JobMemoryLimit = limits.memory_bytes
+            if limits.active_processes > 0:
+                flags |= _LIMIT_ACTIVE_PROCESS
+                info.BasicLimitInformation.ActiveProcessLimit = limits.active_processes
+            info.BasicLimitInformation.LimitFlags = flags
             configured = _kernel32.SetInformationJobObject(
                 job,
                 _JOB_EXTENDED_LIMIT_INFORMATION_CLASS,

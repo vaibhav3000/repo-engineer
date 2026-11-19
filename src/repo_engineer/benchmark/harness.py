@@ -20,6 +20,7 @@ from typing import Any
 
 from ..agent import AgentRuntime, prepare_workspace
 from ..planner import Planner, ScriptedPlanner
+from ..sandbox import Sandbox
 from ..state import AgentState
 from ..tools import ToolRegistry
 
@@ -82,6 +83,7 @@ def run_benchmark(
     results_path: str | Path | None = None,
     traces_dir: str | Path | None = None,
     max_replans: int = 4,
+    sandbox: Sandbox | None = None,
 ) -> dict[str, Any]:
     """Run every task once in an isolated workspace copy; record real outcomes.
 
@@ -95,7 +97,8 @@ def run_benchmark(
     wall_times: dict[str, float] = {}
     for task in load_tasks():
         workspace = prepare_workspace(Path(task["path"]), runs_root, task["task_id"])
-        runtime = AgentRuntime(ToolRegistry(workspace), chosen, max_replans=max_replans)
+        registry = ToolRegistry(workspace, sandbox=sandbox)
+        runtime = AgentRuntime(registry, chosen, max_replans=max_replans)
         started = time.perf_counter()
         state = runtime.run_task(task, trace_path=runs_root / f"{task['task_id']}_trace.json")
         wall_times[task["task_id"]] = time.perf_counter() - started
@@ -119,8 +122,17 @@ def run_benchmark(
     return results
 
 
-def main(results_dir: Path, planner: Planner | None = None, max_replans: int = 4) -> int:
-    """Regenerate the golden results in results_dir; 0 when every task passed."""
+def main(
+    results_dir: Path,
+    planner: Planner | None = None,
+    max_replans: int = 4,
+    sandbox: Sandbox | None = None,
+) -> int:
+    """Regenerate the golden results in results_dir; 0 when every task passed.
+
+    The results do not depend on the sandbox backend: the same files come out
+    of the local and the Docker sandbox.
+    """
     with tempfile.TemporaryDirectory(prefix="repo_engineer_runs_") as runs_root:
         results = run_benchmark(
             runs_root,
@@ -128,7 +140,10 @@ def main(results_dir: Path, planner: Planner | None = None, max_replans: int = 4
             results_path=results_dir / "benchmark_results.json",
             traces_dir=results_dir / "benchmark_traces",
             max_replans=max_replans,
+            sandbox=sandbox,
         )
+    if sandbox is not None:
+        print(f"sandbox: {sandbox.name}")
     print(json.dumps(results["summary"], indent=2))
     for task in results["tasks"]:
         status = "PASS" if task["success"] else "FAIL"

@@ -13,9 +13,10 @@ Design rules:
   runtime's own interpreter without a shell, with a scrubbed environment, a
   deadline, a bounded output buffer and a process-tree kill.
 
-What this does NOT do: the tests run_tests executes include code the agent
-wrote, and that code runs as the host user with the host user's filesystem
-and network access. Only an OS-level sandbox (planned) can contain it.
+Where pytest runs is the sandbox's business (sandbox/): the registry hands it
+a checked PytestInvocation. With the local sandbox, code the agent wrote runs
+as the host user; with the Docker sandbox it runs in a disposable container
+that sees the workspace read-only and has no network.
 """
 
 from __future__ import annotations
@@ -27,12 +28,9 @@ import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
-import tempfile
 import tomllib
-import xml.etree.ElementTree as ElementTree
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -40,8 +38,9 @@ from pathlib import Path
 from typing import Any
 
 from .jail import JailViolation, path_components
-from .process import ProcessResult, child_env, run_bounded
+from .process import child_env
 from .redaction import Redactor
+from .sandbox import JUnitSummary, LocalSandbox, PytestInvocation, Sandbox, SandboxRun
 from .snapshot import RestoreError, WorkspaceSnapshot
 from .state import Observation, ToolCall
 
@@ -139,20 +138,6 @@ def controls_pytest(rel: str) -> bool:
 
 
 @dataclass(frozen=True)
-class JUnitSummary:
-    """Counts from the JUnit XML report pytest writes for a verification run."""
-
-    tests: int
-    failures: int
-    errors: int
-    skipped: int
-
-    @property
-    def passed(self) -> int:
-        return self.tests - self.failures - self.errors - self.skipped
-
-
-@dataclass(frozen=True)
 class Verification:
     """Outcome of ToolRegistry.verify()."""
 
@@ -247,8 +232,11 @@ class ToolRegistry:
         ask_callback: Callable[[ToolSpec, dict[str, Any]], bool] | None = None,
         exec_timeout_s: float = 120.0,
         search_timeout_s: float = 10.0,
+        *,
+        sandbox: Sandbox | None = None,
     ) -> None:
         self.workspace = Path(workspace).resolve()
+        self.sandbox: Sandbox = sandbox or LocalSandbox()
         self.policy: dict[Permission, Policy] = {**DEFAULT_POLICY, **(policy or {})}
         self.ask_callback = ask_callback
         self.exec_timeout_s = exec_timeout_s
@@ -813,31 +801,11 @@ class ToolRegistry:
 
     def _run_pytest(
         self, args: list[str], *, junit_report: bool = False
-    ) -> tuple[ProcessResult, JUnitSummary | None]:
-        """Run pytest on checked args with per-run scratch space outside the workspace.
-
-        The bytecode cache goes to a fresh PYTHONPYCACHEPREFIX, so bytecode
-        planted in the workspace's __pycache__ directories is never read, and
-        pytest's tmp_path base lives there too (its default path names the user).
-        """
-        scratch = Path(tempfile.mkdtemp(prefix="repo_engineer_pytest_"))
-        try:
-            env = child_env()
-            env["PYTHONPYCACHEPREFIX"] = str(scratch / "pycache")
-            extra = [f"--basetemp={scratch / 'tmp'}"]
-            report_path = scratch / "junit.xml"
-            if junit_report:
-                extra.append(f"--junitxml={report_path}")
-            result = run_bounded(
-                self.pytest_argv(args, extra=tuple(extra)),
-                cwd=self.workspace,
-                env=env,
-                timeout_s=self.exec_timeout_s,
-            )
-            report = _read_junit(report_path) if junit_report else None
-        finally:
-            shutil.rmtree(scratch, ignore_errors=True)  # scratch space only
-        return result, report
+    ) -> tuple[SandboxRun, JUnitSummary | None]:
+        """Run pytest on checked args in the registry's sandbox."""
+        invocation = self.pytest_invocation(args, junit=junit_report)
+        run = self.sandbox.run_pytest(self.workspace, invocation, self.exec_timeout_s)
+        return run, run.report
 
     def _run_mutants(
         self, args: list[str], mutants: Sequence[Mapping[str, str]]
@@ -898,7 +866,7 @@ class ToolRegistry:
                 failures.append(name)
         return as_required, failures
 
-    def _command_observation(self, result: ProcessResult) -> Observation:
+    def _command_observation(self, result: SandboxRun) -> Observation:
         """Observation for a runtime-initiated pytest run, formatted like run_tests."""
         output = self.redact(_note_omitted(result.output, result.omitted_bytes))
         if result.timed_out or result.exit_code is None:
@@ -978,37 +946,27 @@ class ToolRegistry:
             i += 1
         return args
 
-    def pytest_argv(self, args: list[str], extra: tuple[str, ...] = ()) -> list[str]:
-        """Full argv for a pytest run in the workspace.
+    def pytest_invocation(self, args: list[str], *, junit: bool = False) -> PytestInvocation:
+        """Describe a pytest run on checked args without naming any host path.
 
-        The runtime's own interpreter runs pytest with -P, so the workspace is
-        not on sys.path when pytest is imported and a planted pytest.py cannot
-        shadow it. The cache plugin is disabled, rootdir and confcutdir are
-        pinned to the workspace so no config or conftest.py above it is read,
-        and the workspace root goes on sys.path through pytest's pythonpath
-        setting so task code stays importable.
+        The workspace's own pytest config file is honoured, and so is its
+        pythonpath setting for entries that stay inside the workspace; the
+        workspace root is always the first import root.
         """
         config = self._workspace_pytest_config()
-        import_roots = [self.workspace]
+        import_roots = ["."]
         if config is not None:
-            import_roots += self._configured_pythonpath(config)
-        roots = " ".join(shlex.quote(root.as_posix()) for root in import_roots)
-        return [
-            sys.executable,
-            "-P",
-            "-m",
-            "pytest",
-            "-p",
-            "no:cacheprovider",
-            "-c",
-            str(config) if config is not None else os.devnull,
-            f"--rootdir={self.workspace}",
-            f"--confcutdir={self.workspace}",
-            "-o",
-            f"pythonpath={roots}",
-            *extra,
-            *args,
-        ]
+            import_roots += [self._display(root) for root in self._configured_pythonpath(config)]
+        return PytestInvocation(
+            args=tuple(args),
+            config=self._display(config) if config is not None else None,
+            import_roots=tuple(dict.fromkeys(import_roots)),
+            junit=junit,
+        )
+
+    def pytest_argv(self, args: list[str], extra: tuple[str, ...] = ()) -> list[str]:
+        """The argv the local sandbox would run for checked args (for inspection)."""
+        return LocalSandbox().pytest_argv(self.workspace, self.pytest_invocation(args), extra)
 
     def _workspace_pytest_config(self) -> Path | None:
         """The workspace's own pytest config file, if its root has one."""
@@ -1096,26 +1054,6 @@ def _split_command(cmd: str) -> list[str]:
     lexer.escape = ""
     lexer.commenters = ""
     return list(lexer)
-
-
-def _read_junit(path: Path) -> JUnitSummary | None:
-    """Totals from a JUnit XML report, or None when it is missing or unreadable."""
-    try:
-        root = ElementTree.parse(path).getroot()
-    except (OSError, ElementTree.ParseError):
-        return None
-    suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
-    if not suites:
-        return None
-    try:
-        return JUnitSummary(
-            tests=sum(int(s.get("tests", 0)) for s in suites),
-            failures=sum(int(s.get("failures", 0)) for s in suites),
-            errors=sum(int(s.get("errors", 0)) for s in suites),
-            skipped=sum(int(s.get("skipped", 0)) for s in suites),
-        )
-    except ValueError:
-        return None
 
 
 def _verification_failure(observation: Observation, report: JUnitSummary | None) -> str:

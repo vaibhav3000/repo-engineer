@@ -2,3 +2,5 @@
 # in Windows checkouts too so regenerating them leaves git diff empty.
 results/** text eol=lf
 demo-site/data.js text eol=lf
+
+src/repo_engineer/sandbox/Dockerfile text eol=lf
