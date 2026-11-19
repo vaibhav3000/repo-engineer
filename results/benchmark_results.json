@@ -53,13 +53,123 @@
       ],
       "errors": [],
       "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_05_cross_file_units",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 6,
+      "replans": 1,
+      "planner_errors": 0,
+      "files_changed": [
+        "inventory/money.py"
+      ],
+      "errors": [],
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_06_rename_across_package",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 5,
+      "replans": 0,
+      "planner_errors": 0,
+      "files_changed": [
+        "accounts/store.py",
+        "accounts/api.py",
+        "accounts/cli.py"
+      ],
+      "errors": [],
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_07_add_test_duration",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 4,
+      "replans": 0,
+      "planner_errors": 0,
+      "files_changed": [
+        "tests/test_duration.py"
+      ],
+      "errors": [],
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_08_extract_helper",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 4,
+      "replans": 0,
+      "planner_errors": 0,
+      "files_changed": [
+        "mixer/util.py",
+        "mixer/color.py",
+        "mixer/volume.py"
+      ],
+      "errors": [],
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_09_signature_change",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 4,
+      "replans": 0,
+      "planner_errors": 0,
+      "files_changed": [
+        "notify/messages.py",
+        "notify/onboarding.py"
+      ],
+      "errors": [],
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_10_mutable_default",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 5,
+      "replans": 1,
+      "planner_errors": 0,
+      "files_changed": [
+        "plugins/registry.py"
+      ],
+      "errors": [],
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_11_add_test_semver",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 4,
+      "replans": 0,
+      "planner_errors": 0,
+      "files_changed": [
+        "tests/test_semver.py"
+      ],
+      "errors": [],
+      "failed_tool_calls": 0
+    },
+    {
+      "task_id": "task_12_import_after_move",
+      "success": true,
+      "final_state": "COMPLETE",
+      "steps": 4,
+      "replans": 0,
+      "planner_errors": 0,
+      "files_changed": [
+        "app/views.py",
+        "app/forms.py"
+      ],
+      "errors": [],
+      "failed_tool_calls": 0
     }
   ],
   "summary": {
-    "n_tasks": 4,
-    "n_success": 4,
+    "n_tasks": 12,
+    "n_success": 12,
     "success_rate": 1.0,
-    "total_replans": 1,
+    "total_replans": 3,
     "total_failed_tool_calls": 0
   }
 }

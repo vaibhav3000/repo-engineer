@@ -1,0 +1,106 @@
+{
+  "task_id": "task_11_add_test_semver",
+  "task_description": "versions/semver.py has no tests. Add tests/test_semver.py covering valid versions, pre-release tags, leading zeros and malformed strings. The verifier checks that your tests catch seeded bugs and survive harmless rewrites.",
+  "workspace": "task_11_add_test_semver_1",
+  "state": "COMPLETE",
+  "actions": [
+    {
+      "step": "analyze",
+      "tool": "list_tree"
+    },
+    {
+      "step": 1,
+      "tool": "read_file",
+      "args": {
+        "path": "versions/semver.py"
+      }
+    },
+    {
+      "step": 2,
+      "tool": "write_file",
+      "args": {
+        "path": "tests/test_semver.py",
+        "content": "import pytest\n\nfrom versions.semver import is_valid_semver\n\n\n@pytest.mark.parametrize('text', ['1.2.3', '0.0.0', '10.20.30', '1.0.0-alpha.1'])\ndef test_valid(text):\n    assert is_valid_semver(text)\n\n\n@pytest.mark.parametrize(\n    'text', ['01.2.3', '1.02.3', '1.2', '1.2.3.4', 'v1.2.3', '', '1.2.3-']\n)\ndef test_invalid(text):\n    assert not is_valid_semver(text)\n"
+      }
+    },
+    {
+      "step": 3,
+      "tool": "run_tests",
+      "args": {
+        "cmd": "python -m pytest tests/ -q"
+      }
+    },
+    {
+      "step": "verify",
+      "tool": "run_tests",
+      "args": {
+        "cmd": "python -m pytest tests/ -q"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "tool": "list_tree",
+      "ok": true
+    },
+    {
+      "tool": "read_file",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": null,
+      "output_excerpt": "   1: import re\n   2: \n   3: NUMBER = r\"(0|[1-9]\\d*)\"\n   4: VERSION = re.compile(\n   5:     rf\"{NUMBER}\\.{NUMBER}\\.{NUMBER}\"\n   6:     rf\"(-[0-9A-Za-z.-]+)?\"\n   7: )\n   8: \n   9: \n  10: def is_valid_semver(text: str) -> bool:\n  11:     \"\"\"True for a MAJOR.MINOR.PATCH version with an optional pre-release tag.\"\"\"\n  12:     return VERSION.fullmatch(text) is not None"
+    },
+    {
+      "tool": "write_file",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": null,
+      "output_excerpt": "created tests/test_semver.py (364 chars)"
+    },
+    {
+      "tool": "run_tests",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": 0,
+      "output_excerpt": "exit=0\n...........                                                              [100%]\n11 passed in <duration>\n"
+    },
+    {
+      "tool": "run_tests",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": 0,
+      "output_excerpt": "exit=0\n...........                                                              [100%]\n11 passed in <duration>\n"
+    }
+  ],
+  "test_results": [
+    {
+      "passed": true,
+      "exit_ok": true,
+      "exit_code": 0
+    },
+    {
+      "verify": true,
+      "passed": true,
+      "exit_code": 0,
+      "restored": [],
+      "mutants_total": 3,
+      "mutants_killed": 3,
+      "neutral_edits_total": 2,
+      "neutral_edits_passed": 2
+    }
+  ],
+  "errors": [],
+  "hypothesis": "workspace has 4 entries",
+  "files_changed": [
+    "tests/test_semver.py"
+  ],
+  "steps_used": 4,
+  "replans": 0,
+  "planner_errors": 0,
+  "verified": true,
+  "llm_usage": null
+}

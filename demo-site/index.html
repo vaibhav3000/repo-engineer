@@ -126,7 +126,7 @@
       a green test suite. Below: real executions from the committed deterministic benchmark, replayed step by step,
       and the jail's actual rejection messages.</p>
     <div class="chips">
-      <span class="chip">Deterministic benchmark: <b>4/4</b> tasks, <b>zero failed tool calls</b></span>
+      <span class="chip">Deterministic benchmark: <b>12/12</b> tasks, <b>zero failed tool calls</b></span>
       <span class="chip">Live Gemini planner: <b>2/2</b> tasks, one recorded run (2 rate-limit errors absorbed)</span>
       <span class="chip">Completion requires the runtime's own <b>passing test run</b>, never a model's claim</span>
     </div>
@@ -183,7 +183,7 @@
       (regenerate with <span class="mono">python scripts/run_benchmark.py</span>,
       <span class="mono">python scripts/run_jail_attacks.py</span> and <span class="mono">python demo-site/build.py</span>).
       The deterministic mode replays known fixes and remains the regression harness; the recorded LLM run demonstrates end-to-end capability
-      and covers two of the four tasks, once each, on an earlier runtime revision: a demonstration, not a leaderboard.
+      and covers two of the original four tasks, once each, on an earlier runtime revision: a demonstration, not a leaderboard.
       Keyboard: Space play/pause, &larr;/&rarr; step, R reset - for the active player.</div>
   </footer>
 </main>
@@ -212,6 +212,14 @@ const TASK_LABELS = {
   task_02_failing_test: "Repair failing test (with replan)",
   task_03_add_missing_test: "Add missing test",
   task_04_constrained_refactor: "Constrained refactor",
+  task_05_cross_file_units: "Bug behind another module",
+  task_06_rename_across_package: "Rename across a package (patch)",
+  task_07_add_test_duration: "Add tests (mutants)",
+  task_08_extract_helper: "Extract a shared helper",
+  task_09_signature_change: "Signature change and callers",
+  task_10_mutable_default: "Shared mutable default",
+  task_11_add_test_semver: "Add tests (mutants, regexes)",
+  task_12_import_after_move: "Stale imports after a move",
 };
 const REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const esc = s => { const d = document.createElement("span"); d.textContent = s == null ? "" : String(s); return d.innerHTML; };
@@ -572,7 +580,7 @@ const TOURS = {
     { title: "The gate pipeline", el: "#pipeline", html: "Every proposed call passes REQUEST \u2192 SCHEMA \u2192 POLICY \u2192 JAIL \u2192 EXECUTION \u2192 OBSERVATION. A rejection stops at its gate and is fed back as history - never executed, never a crash." },
     { title: "Watch a failure become a fix", el: "#story-failure", html: "The strongest moment: on task 2 the first test run exits 1, the runtime REPLANs, the planner edits the constant, the suite reruns green, VERIFY confirms, COMPLETE. Press the 'Failure → fix walkthrough' button right here to be guided through it." },
     { title: "Attack the runtime", el: "#jail-sec", html: "45 hostile calls replayed against the real ToolRegistry with the local sandbox: most stop at the gate that catches them, some run and gain nothing, and the documented residuals are shown as such. The Docker sandbox contains all of them except in-process report forging. No backend." },
-    { title: "The benchmark record", el: "#bench-sec", html: "4/4 deterministic, zero failed tool calls; the recorded live Gemini run passed 2/2 (one run, earlier runtime revision) with two 429s absorbed. Keyboard: Space play/pause, arrows step, R reset." },
+    { title: "The benchmark record", el: "#bench-sec", html: "12/12 deterministic, zero failed tool calls; the recorded live Gemini run passed 2/2 (one run, earlier runtime revision) with two 429s absorbed. Keyboard: Space play/pause, arrows step, R reset." },
   ]},
   failure: { steps: [
     { title: "1. The suite is red", onEnter: () => { taskId = "task_02_failing_test"; cursor = 1; renderTasks(); renderStep(true); },

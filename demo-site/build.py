@@ -3,7 +3,7 @@
 
     python demo-site/build.py        # from the repo root
 
-Renders exactly the committed deterministic benchmark (4/4), the recorded
+Renders exactly the committed deterministic benchmark (12/12), the recorded
 live-LLM run (2/2), the per-task execution traces, and the attack outcomes
 that scripts/run_jail_attacks.py recorded in results/jail_attack_evidence.json.
 The output is byte-stable (LF line endings), so CI can require that a fresh

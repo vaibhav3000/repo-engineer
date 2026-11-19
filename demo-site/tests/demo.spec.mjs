@@ -13,15 +13,15 @@ test("page loads with replay, benchmark record, and attack panel", async ({ page
   await page.goto(URL);
   await expect(page).toHaveTitle(/Agent Run Explorer/);
   await expect(page.locator("#pipeline .g")).toHaveCount(6);
-  await expect(page.locator("#task-btns button")).toHaveCount(4);
+  await expect(page.locator("#task-btns button")).toHaveCount(12);
   // one card per recorded attack in results/jail_attack_evidence.json
   await expect(page.locator("#attacks details")).toHaveCount(45);
   const ok = await page.evaluate(() => ({
     traces: Object.keys(window.DATA.traces).length,
     benchmark: window.DATA.benchmark.summary.n_success,
   }));
-  expect(ok.traces).toBe(4);
-  expect(ok.benchmark).toBe(4);
+  expect(ok.traces).toBe(12);
+  expect(ok.benchmark).toBe(12);
   expect(errors).toEqual([]);
 });
 

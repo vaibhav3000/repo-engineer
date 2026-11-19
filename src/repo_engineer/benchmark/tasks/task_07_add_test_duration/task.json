@@ -1,0 +1,15 @@
+{
+  "task_id": "task_07_add_test_duration",
+  "description": "timeparse/duration.py has no tests. Add tests/test_duration.py covering hours, minutes, seconds, combined units and invalid input. The verifier checks that your tests catch seeded bugs and survive harmless rewrites.",
+  "verify_cmd": "python -m pytest tests/ -q",
+  "protected_paths": ["timeparse/"],
+  "mutants": [
+    {"name": "hours counted as minutes", "path": "timeparse/duration.py", "find": "\"h\": 3600", "replace": "\"h\": 60"},
+    {"name": "seconds ignored", "path": "timeparse/duration.py", "find": "\"s\": 1", "replace": "\"s\": 0"},
+    {"name": "invalid input accepted", "path": "timeparse/duration.py", "find": "    if not text or consumed != len(text):\n        raise ValueError(f\"not a duration: {text!r}\")\n", "replace": ""}
+  ],
+  "neutral_edits": [
+    {"name": "rewritten docstring", "path": "timeparse/duration.py", "find": "\"\"\"Seconds in a duration such as 1h30m or 45s.\"\"\"", "replace": "\"\"\"Parse a compact duration string into seconds.\"\"\""},
+    {"name": "explicit accumulation", "path": "timeparse/duration.py", "find": "        total += int(match.group(1)) * UNITS[match.group(2)]", "replace": "        amount = int(match.group(1))\n        total = total + amount * UNITS[match.group(2)]"}
+  ]
+}

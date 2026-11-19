@@ -9,13 +9,29 @@ import pytest
 from repo_engineer.benchmark import harness
 
 
-def test_load_tasks_finds_the_four_tasks() -> None:
+def test_load_tasks_finds_the_twelve_tasks() -> None:
     assert [t["task_id"] for t in harness.load_tasks()] == [
         "task_01_fix_off_by_one",
         "task_02_failing_test",
         "task_03_add_missing_test",
         "task_04_constrained_refactor",
+        "task_05_cross_file_units",
+        "task_06_rename_across_package",
+        "task_07_add_test_duration",
+        "task_08_extract_helper",
+        "task_09_signature_change",
+        "task_10_mutable_default",
+        "task_11_add_test_semver",
+        "task_12_import_after_move",
     ]
+
+
+def test_every_task_has_a_recipe_and_protects_something() -> None:
+    from repo_engineer.planner import RECIPES
+
+    for task in harness.load_tasks():
+        assert task["task_id"] in RECIPES, task["task_id"]
+        assert task["protected_paths"], task["task_id"]
 
 
 def test_load_tasks_refuses_to_report_an_empty_benchmark(

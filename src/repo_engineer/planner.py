@@ -237,6 +237,116 @@ class RecordedPlanner(Planner):
 # runtime; the final step leaves the workspace to be verified by tests.
 # ---------------------------------------------------------------------------
 
+# Unified diffs and test files used by the recipes below. Blank context lines
+# are written as a single space, as diff tools emit them.
+TASK_06_PATCH = (
+    "--- a/accounts/store.py\n"
+    "+++ b/accounts/store.py\n"
+    "@@ -5,3 +5,3 @@\n"
+    " \n"
+    "-def get_user(user_id: int) -> str:\n"
+    "+def fetch_user(user_id: int) -> str:\n"
+    '     """The name of a user, or a KeyError for an unknown id."""\n'
+    "--- a/accounts/api.py\n"
+    "+++ b/accounts/api.py\n"
+    "@@ -1,5 +1,5 @@\n"
+    "-from accounts.store import get_user\n"
+    "+from accounts.store import fetch_user\n"
+    " \n"
+    " \n"
+    " def user_payload(user_id: int) -> dict[str, object]:\n"
+    '-    return {"id": user_id, "name": get_user(user_id)}\n'
+    '+    return {"id": user_id, "name": fetch_user(user_id)}\n'
+    "--- a/accounts/cli.py\n"
+    "+++ b/accounts/cli.py\n"
+    "@@ -4,2 +4,2 @@\n"
+    " def show(user_id: int) -> str:\n"
+    '-    return f"user {user_id}: {store.get_user(user_id)}"\n'
+    '+    return f"user {user_id}: {store.fetch_user(user_id)}"\n'
+)
+TASK_07_TESTS = (
+    "import pytest\n\nfrom timeparse.duration import parse_duration\n\n\n"
+    "def test_hours():\n    assert parse_duration('2h') == 7200\n\n\n"
+    "def test_minutes():\n    assert parse_duration('15m') == 900\n\n\n"
+    "def test_seconds():\n    assert parse_duration('45s') == 45\n\n\n"
+    "def test_combined_units():\n    assert parse_duration('1h30m15s') == 5415\n\n\n"
+    "@pytest.mark.parametrize('text', ['', 'abc', '1x', 'h1', '10'])\n"
+    "def test_invalid_input(text):\n"
+    "    with pytest.raises(ValueError):\n        parse_duration(text)\n"
+)
+TASK_08_PATCH = (
+    "--- /dev/null\n"
+    "+++ b/mixer/util.py\n"
+    "@@ -0,0 +1,5 @@\n"
+    '+"""Helpers shared by the mixer modules."""\n'
+    "+\n"
+    "+\n"
+    "+def clamp(value: float, low: float, high: float) -> float:\n"
+    "+    return max(low, min(high, value))\n"
+    "--- a/mixer/color.py\n"
+    "+++ b/mixer/color.py\n"
+    "@@ -1,8 +1,6 @@\n"
+    ' """RGB channels are integers from 0 to 255."""\n'
+    " \n"
+    "-\n"
+    "-def clamp(value: float, low: float, high: float) -> float:\n"
+    "-    return max(low, min(high, value))\n"
+    "+from mixer.util import clamp\n"
+    " \n"
+    " \n"
+    " def brighten(channel: int, amount: int) -> int:\n"
+    "--- a/mixer/volume.py\n"
+    "+++ b/mixer/volume.py\n"
+    "@@ -1,8 +1,6 @@\n"
+    ' """Volume is a float from 0.0 (silent) to 1.0 (full)."""\n'
+    " \n"
+    "-\n"
+    "-def clamp(value: float, low: float, high: float) -> float:\n"
+    "-    return max(low, min(high, value))\n"
+    "+from mixer.util import clamp\n"
+    " \n"
+    " \n"
+    " def louder(level: float, step: float = 0.1) -> float:\n"
+)
+TASK_09_PATCH = (
+    "--- a/notify/messages.py\n"
+    "+++ b/notify/messages.py\n"
+    "@@ -2,4 +2,4 @@\n"
+    " \n"
+    " \n"
+    "-def send(user: str, text: str) -> dict[str, str]:\n"
+    '-    return {"to": user, "text": text}\n'
+    '+def send(user: str, text: str, channel: str = "email") -> dict[str, str]:\n'
+    '+    return {"to": user, "text": text, "channel": channel}\n'
+    "--- a/notify/onboarding.py\n"
+    "+++ b/notify/onboarding.py\n"
+    "@@ -4,2 +4,2 @@\n"
+    " def welcome(user: str) -> dict[str, str]:\n"
+    '-    return messages.send(user, f"Welcome aboard, {user}!")\n'
+    '+    return messages.send(user, f"Welcome aboard, {user}!", channel="sms")\n'
+)
+TASK_11_TESTS = (
+    "import pytest\n\nfrom versions.semver import is_valid_semver\n\n\n"
+    "@pytest.mark.parametrize('text', ['1.2.3', '0.0.0', '10.20.30', '1.0.0-alpha.1'])\n"
+    "def test_valid(text):\n    assert is_valid_semver(text)\n\n\n"
+    "@pytest.mark.parametrize(\n"
+    "    'text', ['01.2.3', '1.02.3', '1.2', '1.2.3.4', 'v1.2.3', '', '1.2.3-']\n)\n"
+    "def test_invalid(text):\n    assert not is_valid_semver(text)\n"
+)
+TASK_12_PATCH = (
+    "--- a/app/views.py\n"
+    "+++ b/app/views.py\n"
+    "@@ -1 +1,2 @@\n"
+    "-from textkit.old_strings import slugify, truncate\n"
+    "+from textkit.old_strings import truncate\n"
+    "+from textkit.text import slugify\n"
+    "--- a/app/forms.py\n"
+    "+++ b/app/forms.py\n"
+    "@@ -1 +1 @@\n"
+    "-from textkit.old_strings import slugify\n"
+    "+from textkit.text import slugify\n"
+)
+
 RECIPES: dict[str, list[ToolCall]] = {
     # task_01: off-by-one loop in benchmark/tasks/task_01_fix_off_by_one/shop/cart.py
     "task_01_fix_off_by_one": [
@@ -315,6 +425,78 @@ RECIPES: dict[str, list[ToolCall]] = {
                 "new_text": "calculate_total(",
             },
         ),
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+    ],
+    # task_05: the report is wrong, but the bug is in the money helper it uses
+    "task_05_cross_file_units": [
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+        ToolCall("find_symbol", {"name": "to_cents"}),
+        ToolCall("read_file", {"path": "inventory/money.py"}),
+        ToolCall(
+            "apply_edit",
+            {
+                "path": "inventory/money.py",
+                "old_text": "int(round(amount * 10))",
+                "new_text": "int(round(amount * 100))",
+            },
+        ),
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+    ],
+    # task_06: rename across three modules in one checked, all-or-nothing patch
+    "task_06_rename_across_package": [
+        ToolCall("find_symbol", {"name": "get_user"}),
+        ToolCall("apply_patch", {"patch": TASK_06_PATCH, "dry_run": True}),
+        ToolCall("apply_patch", {"patch": TASK_06_PATCH}),
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+    ],
+    # task_07: add tests strong enough to kill the seeded mutants
+    "task_07_add_test_duration": [
+        ToolCall("read_file", {"path": "timeparse/duration.py"}),
+        ToolCall("write_file", {"path": "tests/test_duration.py", "content": TASK_07_TESTS}),
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+    ],
+    # task_08: extract the duplicated helper into a new module
+    "task_08_extract_helper": [
+        ToolCall("repo_map", {}),
+        ToolCall("apply_patch", {"patch": TASK_08_PATCH}),
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+    ],
+    # task_09: a new parameter and the caller that must use it
+    "task_09_signature_change": [
+        ToolCall("find_symbol", {"name": "send"}),
+        ToolCall("apply_patch", {"patch": TASK_09_PATCH}),
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+    ],
+    # task_10: a mutable default argument shared by every instance
+    "task_10_mutable_default": [
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+        ToolCall("read_file", {"path": "plugins/registry.py"}),
+        ToolCall(
+            "apply_edit",
+            {
+                "path": "plugins/registry.py",
+                "old_text": "    def __init__(self, enabled=[]):\n        self.enabled = enabled",
+                "new_text": (
+                    "    def __init__(self, enabled=None):\n"
+                    "        self.enabled = [] if enabled is None else enabled"
+                ),
+            },
+        ),
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+    ],
+    # task_11: add tests strong enough to kill the seeded mutants
+    "task_11_add_test_semver": [
+        ToolCall("read_file", {"path": "versions/semver.py"}),
+        ToolCall("write_file", {"path": "tests/test_semver.py", "content": TASK_11_TESTS}),
+        ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
+    ],
+    # task_12: stale imports after a function moved between modules. The
+    # recipe searches instead of running the broken suite first: a collection
+    # error prints interpreter frames that differ between sandboxes and
+    # platforms, which a golden file cannot hold.
+    "task_12_import_after_move": [
+        ToolCall("search", {"pattern": "old_strings import .*slugify"}),
+        ToolCall("apply_patch", {"patch": TASK_12_PATCH}),
         ToolCall("run_tests", {"cmd": "python -m pytest tests/ -q"}),
     ],
 }

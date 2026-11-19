@@ -55,13 +55,123 @@ window.DATA = {
     ],
     "errors": [],
     "failed_tool_calls": 0
+   },
+   {
+    "task_id": "task_05_cross_file_units",
+    "success": true,
+    "final_state": "COMPLETE",
+    "steps": 6,
+    "replans": 1,
+    "planner_errors": 0,
+    "files_changed": [
+     "inventory/money.py"
+    ],
+    "errors": [],
+    "failed_tool_calls": 0
+   },
+   {
+    "task_id": "task_06_rename_across_package",
+    "success": true,
+    "final_state": "COMPLETE",
+    "steps": 5,
+    "replans": 0,
+    "planner_errors": 0,
+    "files_changed": [
+     "accounts/store.py",
+     "accounts/api.py",
+     "accounts/cli.py"
+    ],
+    "errors": [],
+    "failed_tool_calls": 0
+   },
+   {
+    "task_id": "task_07_add_test_duration",
+    "success": true,
+    "final_state": "COMPLETE",
+    "steps": 4,
+    "replans": 0,
+    "planner_errors": 0,
+    "files_changed": [
+     "tests/test_duration.py"
+    ],
+    "errors": [],
+    "failed_tool_calls": 0
+   },
+   {
+    "task_id": "task_08_extract_helper",
+    "success": true,
+    "final_state": "COMPLETE",
+    "steps": 4,
+    "replans": 0,
+    "planner_errors": 0,
+    "files_changed": [
+     "mixer/util.py",
+     "mixer/color.py",
+     "mixer/volume.py"
+    ],
+    "errors": [],
+    "failed_tool_calls": 0
+   },
+   {
+    "task_id": "task_09_signature_change",
+    "success": true,
+    "final_state": "COMPLETE",
+    "steps": 4,
+    "replans": 0,
+    "planner_errors": 0,
+    "files_changed": [
+     "notify/messages.py",
+     "notify/onboarding.py"
+    ],
+    "errors": [],
+    "failed_tool_calls": 0
+   },
+   {
+    "task_id": "task_10_mutable_default",
+    "success": true,
+    "final_state": "COMPLETE",
+    "steps": 5,
+    "replans": 1,
+    "planner_errors": 0,
+    "files_changed": [
+     "plugins/registry.py"
+    ],
+    "errors": [],
+    "failed_tool_calls": 0
+   },
+   {
+    "task_id": "task_11_add_test_semver",
+    "success": true,
+    "final_state": "COMPLETE",
+    "steps": 4,
+    "replans": 0,
+    "planner_errors": 0,
+    "files_changed": [
+     "tests/test_semver.py"
+    ],
+    "errors": [],
+    "failed_tool_calls": 0
+   },
+   {
+    "task_id": "task_12_import_after_move",
+    "success": true,
+    "final_state": "COMPLETE",
+    "steps": 4,
+    "replans": 0,
+    "planner_errors": 0,
+    "files_changed": [
+     "app/views.py",
+     "app/forms.py"
+    ],
+    "errors": [],
+    "failed_tool_calls": 0
    }
   ],
   "summary": {
-   "n_tasks": 4,
-   "n_success": 4,
+   "n_tasks": 12,
+   "n_success": 12,
    "success_rate": 1.0,
-   "total_replans": 1,
+   "total_replans": 3,
    "total_failed_tool_calls": 0
   }
  },
@@ -625,6 +735,871 @@ window.DATA = {
      "error": null,
      "exit_code": 0,
      "output_excerpt": "exit=0\n..                                                                       [100%]\n2 passed in <duration>\n"
+    }
+   ]
+  },
+  "task_05_cross_file_units": {
+   "task_description": "The inventory report total is wrong by a factor of ten. The report formats amounts it gets from the money helpers; find where the cents conversion goes wrong and fix it there.",
+   "state": "COMPLETE",
+   "steps_used": 6,
+   "replans": 1,
+   "files_changed": [
+    "inventory/money.py"
+   ],
+   "test_results": [
+    {
+     "passed": false,
+     "exit_ok": true,
+     "exit_code": 1
+    },
+    {
+     "passed": true,
+     "exit_ok": true,
+     "exit_code": 0
+    },
+    {
+     "verify": true,
+     "passed": true,
+     "exit_code": 0,
+     "restored": [],
+     "mutants_total": 0,
+     "mutants_killed": 0,
+     "neutral_edits_total": 0,
+     "neutral_edits_passed": 0
+    }
+   ],
+   "actions": [
+    {
+     "step": "analyze",
+     "tool": "list_tree"
+    },
+    {
+     "step": 1,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": 2,
+     "tool": "find_symbol",
+     "args": {
+      "name": "to_cents"
+     }
+    },
+    {
+     "step": 3,
+     "tool": "read_file",
+     "args": {
+      "path": "inventory/money.py"
+     }
+    },
+    {
+     "step": 4,
+     "tool": "apply_edit",
+     "args": {
+      "path": "inventory/money.py",
+      "old_text": "int(round(amount * 10))",
+      "new_text": "int(round(amount * 100))"
+     }
+    },
+    {
+     "step": 5,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": "verify",
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    }
+   ],
+   "observations": [
+    {
+     "tool": "list_tree",
+     "ok": true
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 1,
+     "output_excerpt": "exit=1\nFF.                                                                      [100%]\n=== FAILURES ===\n___ test_to_cents_rounds_to_the_nearest_cent ___\n\n    def test_to_cents_rounds_to_the_nearest_cent():\n>       assert to_cents(1.005) in (100, 101)\nE       assert 10 in (100, 101)\nE        +  where 10 = to_cents(1.005)\n\ntests/test_report.py:6: AssertionError\n___ test_report_total ___\n\n    def test_report_total():\n>       assert report_total([(1.50, 2), (9.34, 1)]) == \"$12.34\"\nE       AssertionError: assert '$1.23' == '$12.34'\nE         \nE         - $12.34\nE         + $1.23\n\ntests/test_report.py:11: AssertionError\n=== short test summary info ===\nFAILED tests/test_report.py::test_to_cents_rounds_to_the_nearest_cent - asser...\nFAILED tests/test_report.py::test_report_total - AssertionError: assert '$1.2...\n2 failed, 1 passed in <duration>\n"
+    },
+    {
+     "tool": "find_symbol",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "definition inventory/money.py:4-6 function to_cents(amount: float) -> int\nreference inventory/report.py:3\nreference inventory/report.py:7\nreference tests/test_report.py:1\nreference tests/test_report.py:6\nreference tests/test_report.py:7"
+    },
+    {
+     "tool": "read_file",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "   1: \"\"\"Money helpers: amounts are floats in dollars at the edges, integer cents inside.\"\"\"\n   2: \n   3: \n   4: def to_cents(amount: float) -> int:\n   5:     \"\"\"Dollars to whole cents, rounded to the nearest cent.\"\"\"\n   6:     return int(round(amount * 10))\n   7: \n   8: \n   9: def format_cents(cents: int) -> str:\n  10:     return f\"${cents // 100}.{cents % 100:02d}\""
+    },
+    {
+     "tool": "apply_edit",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "edited inventory/money.py: 1 replacement"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
+    }
+   ]
+  },
+  "task_06_rename_across_package": {
+   "task_description": "Rename get_user to fetch_user in accounts/store.py and update every caller in the package; get_user must no longer exist and behaviour must not change.",
+   "state": "COMPLETE",
+   "steps_used": 5,
+   "replans": 0,
+   "files_changed": [
+    "accounts/store.py",
+    "accounts/api.py",
+    "accounts/cli.py"
+   ],
+   "test_results": [
+    {
+     "passed": true,
+     "exit_ok": true,
+     "exit_code": 0
+    },
+    {
+     "verify": true,
+     "passed": true,
+     "exit_code": 0,
+     "restored": [],
+     "mutants_total": 0,
+     "mutants_killed": 0,
+     "neutral_edits_total": 0,
+     "neutral_edits_passed": 0
+    }
+   ],
+   "actions": [
+    {
+     "step": "analyze",
+     "tool": "list_tree"
+    },
+    {
+     "step": 1,
+     "tool": "find_symbol",
+     "args": {
+      "name": "get_user"
+     }
+    },
+    {
+     "step": 2,
+     "tool": "apply_patch",
+     "args": {
+      "patch": "--- a/accounts/store.py\n+++ b/accounts/store.py\n@@ -5,3 +5,3 @@\n \n-def get_user(user_id: int) -> str:\n+def fetch_user(user_id: int) -> str:\n     \"\"\"The name of a user, or a KeyError for an unknown id.\"\"\"\n--- a/accounts/api.py\n+++ b/accounts/api.py\n@@ -1,5 +1,5 @@\n-from accounts.store import get_user\n+from accounts.store import fetch_user\n \n \n def user_payload(user_id: int) -> dict[str, object]:\n-    return {\"id\": user_id, \"name\": get_user(user_id)}\n+    return {\"id\": user_id, \"name\": fetch_user(user_id)}\n--- a/accounts/cli.py\n+++ b/accounts/cli.py\n@@ -4,2 +4,2 @@\n def show(user_id: int) -> str:\n-    return f\"user {user_id}: {store.get_user(user_id)}\"\n+    return f\"user {user_id}: {store.fetch_user(user_id)}\"\n",
+      "dry_run": true
+     }
+    },
+    {
+     "step": 3,
+     "tool": "apply_patch",
+     "args": {
+      "patch": "--- a/accounts/store.py\n+++ b/accounts/store.py\n@@ -5,3 +5,3 @@\n \n-def get_user(user_id: int) -> str:\n+def fetch_user(user_id: int) -> str:\n     \"\"\"The name of a user, or a KeyError for an unknown id.\"\"\"\n--- a/accounts/api.py\n+++ b/accounts/api.py\n@@ -1,5 +1,5 @@\n-from accounts.store import get_user\n+from accounts.store import fetch_user\n \n \n def user_payload(user_id: int) -> dict[str, object]:\n-    return {\"id\": user_id, \"name\": get_user(user_id)}\n+    return {\"id\": user_id, \"name\": fetch_user(user_id)}\n--- a/accounts/cli.py\n+++ b/accounts/cli.py\n@@ -4,2 +4,2 @@\n def show(user_id: int) -> str:\n-    return f\"user {user_id}: {store.get_user(user_id)}\"\n+    return f\"user {user_id}: {store.fetch_user(user_id)}\"\n"
+     }
+    },
+    {
+     "step": 4,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": "verify",
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    }
+   ],
+   "observations": [
+    {
+     "tool": "list_tree",
+     "ok": true
+    },
+    {
+     "tool": "find_symbol",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "definition accounts/store.py:6-8 function get_user(user_id: int) -> str\nreference accounts/api.py:1\nreference accounts/api.py:5\nreference accounts/cli.py:5"
+    },
+    {
+     "tool": "apply_patch",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "dry run, nothing written; would change accounts/store.py (+1 -1)\nwould change accounts/api.py (+2 -2)\nwould change accounts/cli.py (+1 -1)"
+    },
+    {
+     "tool": "apply_patch",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "applied: change accounts/store.py (+1 -1); change accounts/api.py (+2 -2); change accounts/cli.py (+1 -1)"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
+    }
+   ]
+  },
+  "task_07_add_test_duration": {
+   "task_description": "timeparse/duration.py has no tests. Add tests/test_duration.py covering hours, minutes, seconds, combined units and invalid input. The verifier checks that your tests catch seeded bugs and survive harmless rewrites.",
+   "state": "COMPLETE",
+   "steps_used": 4,
+   "replans": 0,
+   "files_changed": [
+    "tests/test_duration.py"
+   ],
+   "test_results": [
+    {
+     "passed": true,
+     "exit_ok": true,
+     "exit_code": 0
+    },
+    {
+     "verify": true,
+     "passed": true,
+     "exit_code": 0,
+     "restored": [],
+     "mutants_total": 3,
+     "mutants_killed": 3,
+     "neutral_edits_total": 2,
+     "neutral_edits_passed": 2
+    }
+   ],
+   "actions": [
+    {
+     "step": "analyze",
+     "tool": "list_tree"
+    },
+    {
+     "step": 1,
+     "tool": "read_file",
+     "args": {
+      "path": "timeparse/duration.py"
+     }
+    },
+    {
+     "step": 2,
+     "tool": "write_file",
+     "args": {
+      "path": "tests/test_duration.py",
+      "content": "import pytest\n\nfrom timeparse.duration import parse_duration\n\n\ndef test_hours():\n    assert parse_duration('2h') == 7200\n\n\ndef test_minutes():\n    assert parse_duration('15m') == 900\n\n\ndef test_seconds():\n    assert parse_duration('45s') == 45\n\n\ndef test_combined_units():\n    assert parse_duration('1h30m15s') == 5415\n\n\n@pytest.mark.parametrize('text', ['', 'abc', '1x', 'h1', '10'])\ndef test_invalid_input(text):\n    with pytest.raises(ValueError):\n        parse_duration(text)\n"
+     }
+    },
+    {
+     "step": 3,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": "verify",
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    }
+   ],
+   "observations": [
+    {
+     "tool": "list_tree",
+     "ok": true
+    },
+    {
+     "tool": "read_file",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "   1: import re\n   2: \n   3: UNITS = {\"h\": 3600, \"m\": 60, \"s\": 1}\n   4: PART = re.compile(r\"(\\d+)([hms])\")\n   5: \n   6: \n   7: def parse_duration(text: str) -> int:\n   8:     \"\"\"Seconds in a duration such as 1h30m or 45s.\"\"\"\n   9:     total = 0\n  10:     consumed = 0\n  11:     for match in PART.finditer(text):\n  12:         if match.start() != consumed:\n  13:             break\n  14:         total += int(match.group(1)) * UNITS[match.group(2)]\n  15:         consumed = match.end()\n  16:     if not text or consumed != len(text):\n  17:         raise ValueError(f\"not a duration: {text!r}\")\n  18:     return total"
+    },
+    {
+     "tool": "write_file",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "created tests/test_duration.py (480 chars)"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n.........                                                                [100%]\n9 passed in <duration>\n"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n.........                                                                [100%]\n9 passed in <duration>\n"
+    }
+   ]
+  },
+  "task_08_extract_helper": {
+   "task_description": "mixer/color.py and mixer/volume.py each define the same clamp function. Move it into a new module mixer/util.py and make both modules use that one helper; behaviour must not change.",
+   "state": "COMPLETE",
+   "steps_used": 4,
+   "replans": 0,
+   "files_changed": [
+    "mixer/util.py",
+    "mixer/color.py",
+    "mixer/volume.py"
+   ],
+   "test_results": [
+    {
+     "passed": true,
+     "exit_ok": true,
+     "exit_code": 0
+    },
+    {
+     "verify": true,
+     "passed": true,
+     "exit_code": 0,
+     "restored": [],
+     "mutants_total": 0,
+     "mutants_killed": 0,
+     "neutral_edits_total": 0,
+     "neutral_edits_passed": 0
+    }
+   ],
+   "actions": [
+    {
+     "step": "analyze",
+     "tool": "list_tree"
+    },
+    {
+     "step": 1,
+     "tool": "repo_map",
+     "args": {}
+    },
+    {
+     "step": 2,
+     "tool": "apply_patch",
+     "args": {
+      "patch": "--- /dev/null\n+++ b/mixer/util.py\n@@ -0,0 +1,5 @@\n+\"\"\"Helpers shared by the mixer modules.\"\"\"\n+\n+\n+def clamp(value: float, low: float, high: float) -> float:\n+    return max(low, min(high, value))\n--- a/mixer/color.py\n+++ b/mixer/color.py\n@@ -1,8 +1,6 @@\n \"\"\"RGB channels are integers from 0 to 255.\"\"\"\n \n-\n-def clamp(value: float, low: float, high: float) -> float:\n-    return max(low, min(high, value))\n+from mixer.util import clamp\n \n \n def brighten(channel: int, amount: int) -> int:\n--- a/mixer/volume.py\n+++ b/mixer/volume.py\n@@ -1,8 +1,6 @@\n \"\"\"Volume is a float from 0.0 (silent) to 1.0 (full).\"\"\"\n \n-\n-def clamp(value: float, low: float, high: float) -> float:\n-    return max(low, min(high, value))\n+from mixer.util import clamp\n \n \n def louder(level: float, step: float = 0.1) -> float:\n"
+     }
+    },
+    {
+     "step": 3,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": "verify",
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    }
+   ],
+   "observations": [
+    {
+     "tool": "list_tree",
+     "ok": true
+    },
+    {
+     "tool": "repo_map",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "mixer/color.py\n  def clamp(value: float, low: float, high: float) -> float  L4-5\n  def brighten(channel: int, amount: int) -> int  L8-9\nmixer/volume.py\n  def clamp(value: float, low: float, high: float) -> float  L4-5\n  def louder(level: float, step: float=0.1) -> float  L8-9\nmixer/__init__.py\ntests/test_mixer.py\n  def test_one_shared_helper()  L4-6\n  def test_clamp()  L9-12\n  def test_behaviour_is_unchanged()  L15-19"
+    },
+    {
+     "tool": "apply_patch",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "applied: create mixer/util.py (+5 -0); change mixer/color.py (+1 -3); change mixer/volume.py (+1 -3)"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
+    }
+   ]
+  },
+  "task_09_signature_change": {
+   "task_description": "notify.messages.send must take a channel argument (default \"email\") and include it in the record it returns. Onboarding messages must go out by \"sms\"; billing keeps the default. Update the function and its callers.",
+   "state": "COMPLETE",
+   "steps_used": 4,
+   "replans": 0,
+   "files_changed": [
+    "notify/messages.py",
+    "notify/onboarding.py"
+   ],
+   "test_results": [
+    {
+     "passed": true,
+     "exit_ok": true,
+     "exit_code": 0
+    },
+    {
+     "verify": true,
+     "passed": true,
+     "exit_code": 0,
+     "restored": [],
+     "mutants_total": 0,
+     "mutants_killed": 0,
+     "neutral_edits_total": 0,
+     "neutral_edits_passed": 0
+    }
+   ],
+   "actions": [
+    {
+     "step": "analyze",
+     "tool": "list_tree"
+    },
+    {
+     "step": 1,
+     "tool": "find_symbol",
+     "args": {
+      "name": "send"
+     }
+    },
+    {
+     "step": 2,
+     "tool": "apply_patch",
+     "args": {
+      "patch": "--- a/notify/messages.py\n+++ b/notify/messages.py\n@@ -2,4 +2,4 @@\n \n \n-def send(user: str, text: str) -> dict[str, str]:\n-    return {\"to\": user, \"text\": text}\n+def send(user: str, text: str, channel: str = \"email\") -> dict[str, str]:\n+    return {\"to\": user, \"text\": text, \"channel\": channel}\n--- a/notify/onboarding.py\n+++ b/notify/onboarding.py\n@@ -4,2 +4,2 @@\n def welcome(user: str) -> dict[str, str]:\n-    return messages.send(user, f\"Welcome aboard, {user}!\")\n+    return messages.send(user, f\"Welcome aboard, {user}!\", channel=\"sms\")\n"
+     }
+    },
+    {
+     "step": 3,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": "verify",
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    }
+   ],
+   "observations": [
+    {
+     "tool": "list_tree",
+     "ok": true
+    },
+    {
+     "tool": "find_symbol",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "definition notify/messages.py:4-5 function send(user: str, text: str) -> dict[str, str]\nreference notify/billing.py:1\nreference notify/billing.py:5\nreference notify/onboarding.py:5\nreference tests/test_notify.py:2\nreference tests/test_notify.py:7\nreference tests/test_notify.py:11"
+    },
+    {
+     "tool": "apply_patch",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "applied: change notify/messages.py (+2 -2); change notify/onboarding.py (+1 -1)"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
+    }
+   ]
+  },
+  "task_10_mutable_default": {
+   "task_description": "Plugins enabled on one Registry show up in every other Registry. Find the shared state and fix it so each Registry has its own plugins.",
+   "state": "COMPLETE",
+   "steps_used": 5,
+   "replans": 1,
+   "files_changed": [
+    "plugins/registry.py"
+   ],
+   "test_results": [
+    {
+     "passed": false,
+     "exit_ok": true,
+     "exit_code": 1
+    },
+    {
+     "passed": true,
+     "exit_ok": true,
+     "exit_code": 0
+    },
+    {
+     "verify": true,
+     "passed": true,
+     "exit_code": 0,
+     "restored": [],
+     "mutants_total": 0,
+     "mutants_killed": 0,
+     "neutral_edits_total": 0,
+     "neutral_edits_passed": 0
+    }
+   ],
+   "actions": [
+    {
+     "step": "analyze",
+     "tool": "list_tree"
+    },
+    {
+     "step": 1,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": 2,
+     "tool": "read_file",
+     "args": {
+      "path": "plugins/registry.py"
+     }
+    },
+    {
+     "step": 3,
+     "tool": "apply_edit",
+     "args": {
+      "path": "plugins/registry.py",
+      "old_text": "    def __init__(self, enabled=[]):\n        self.enabled = enabled",
+      "new_text": "    def __init__(self, enabled=None):\n        self.enabled = [] if enabled is None else enabled"
+     }
+    },
+    {
+     "step": 4,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": "verify",
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    }
+   ],
+   "observations": [
+    {
+     "tool": "list_tree",
+     "ok": true
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 1,
+     "output_excerpt": "exit=1\nF.                                                                       [100%]\n=== FAILURES ===\n___ test_registries_do_not_share_plugins ___\n\n    def test_registries_do_not_share_plugins():\n        first = load([\"audio\"])\n        second = load([\"video\"])\n>       assert first.enabled == [\"audio\"]\nE       AssertionError: assert ['audio', 'video'] == ['audio']\nE         \nE         Left contains one more item: 'video'\nE         Use -v to get more diff\n\ntests/test_registry.py:8: AssertionError\n=== short test summary info ===\nFAILED tests/test_registry.py::test_registries_do_not_share_plugins - Asserti...\n1 failed, 1 passed in <duration>\n"
+    },
+    {
+     "tool": "read_file",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "   1: class Registry:\n   2:     def __init__(self, enabled=[]):\n   3:         self.enabled = enabled\n   4: \n   5:     def enable(self, name: str) -> None:\n   6:         if name not in self.enabled:\n   7:             self.enabled.append(name)"
+    },
+    {
+     "tool": "apply_edit",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "edited plugins/registry.py: 1 replacement"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n..                                                                       [100%]\n2 passed in <duration>\n"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n..                                                                       [100%]\n2 passed in <duration>\n"
+    }
+   ]
+  },
+  "task_11_add_test_semver": {
+   "task_description": "versions/semver.py has no tests. Add tests/test_semver.py covering valid versions, pre-release tags, leading zeros and malformed strings. The verifier checks that your tests catch seeded bugs and survive harmless rewrites.",
+   "state": "COMPLETE",
+   "steps_used": 4,
+   "replans": 0,
+   "files_changed": [
+    "tests/test_semver.py"
+   ],
+   "test_results": [
+    {
+     "passed": true,
+     "exit_ok": true,
+     "exit_code": 0
+    },
+    {
+     "verify": true,
+     "passed": true,
+     "exit_code": 0,
+     "restored": [],
+     "mutants_total": 3,
+     "mutants_killed": 3,
+     "neutral_edits_total": 2,
+     "neutral_edits_passed": 2
+    }
+   ],
+   "actions": [
+    {
+     "step": "analyze",
+     "tool": "list_tree"
+    },
+    {
+     "step": 1,
+     "tool": "read_file",
+     "args": {
+      "path": "versions/semver.py"
+     }
+    },
+    {
+     "step": 2,
+     "tool": "write_file",
+     "args": {
+      "path": "tests/test_semver.py",
+      "content": "import pytest\n\nfrom versions.semver import is_valid_semver\n\n\n@pytest.mark.parametrize('text', ['1.2.3', '0.0.0', '10.20.30', '1.0.0-alpha.1'])\ndef test_valid(text):\n    assert is_valid_semver(text)\n\n\n@pytest.mark.parametrize(\n    'text', ['01.2.3', '1.02.3', '1.2', '1.2.3.4', 'v1.2.3', '', '1.2.3-']\n)\ndef test_invalid(text):\n    assert not is_valid_semver(text)\n"
+     }
+    },
+    {
+     "step": 3,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": "verify",
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    }
+   ],
+   "observations": [
+    {
+     "tool": "list_tree",
+     "ok": true
+    },
+    {
+     "tool": "read_file",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "   1: import re\n   2: \n   3: NUMBER = r\"(0|[1-9]\\d*)\"\n   4: VERSION = re.compile(\n   5:     rf\"{NUMBER}\\.{NUMBER}\\.{NUMBER}\"\n   6:     rf\"(-[0-9A-Za-z.-]+)?\"\n   7: )\n   8: \n   9: \n  10: def is_valid_semver(text: str) -> bool:\n  11:     \"\"\"True for a MAJOR.MINOR.PATCH version with an optional pre-release tag.\"\"\"\n  12:     return VERSION.fullmatch(text) is not None"
+    },
+    {
+     "tool": "write_file",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "created tests/test_semver.py (364 chars)"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...........                                                              [100%]\n11 passed in <duration>\n"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...........                                                              [100%]\n11 passed in <duration>\n"
+    }
+   ]
+  },
+  "task_12_import_after_move": {
+   "task_description": "slugify was moved from textkit/old_strings.py to textkit/text.py, but the app still imports it from the old place and the test suite cannot even start. Fix the imports wherever they are stale.",
+   "state": "COMPLETE",
+   "steps_used": 4,
+   "replans": 0,
+   "files_changed": [
+    "app/views.py",
+    "app/forms.py"
+   ],
+   "test_results": [
+    {
+     "passed": true,
+     "exit_ok": true,
+     "exit_code": 0
+    },
+    {
+     "verify": true,
+     "passed": true,
+     "exit_code": 0,
+     "restored": [],
+     "mutants_total": 0,
+     "mutants_killed": 0,
+     "neutral_edits_total": 0,
+     "neutral_edits_passed": 0
+    }
+   ],
+   "actions": [
+    {
+     "step": "analyze",
+     "tool": "list_tree"
+    },
+    {
+     "step": 1,
+     "tool": "search",
+     "args": {
+      "pattern": "old_strings import .*slugify"
+     }
+    },
+    {
+     "step": 2,
+     "tool": "apply_patch",
+     "args": {
+      "patch": "--- a/app/views.py\n+++ b/app/views.py\n@@ -1 +1,2 @@\n-from textkit.old_strings import slugify, truncate\n+from textkit.old_strings import truncate\n+from textkit.text import slugify\n--- a/app/forms.py\n+++ b/app/forms.py\n@@ -1 +1 @@\n-from textkit.old_strings import slugify\n+from textkit.text import slugify\n"
+     }
+    },
+    {
+     "step": 3,
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    },
+    {
+     "step": "verify",
+     "tool": "run_tests",
+     "args": {
+      "cmd": "python -m pytest tests/ -q"
+     }
+    }
+   ],
+   "observations": [
+    {
+     "tool": "list_tree",
+     "ok": true
+    },
+    {
+     "tool": "search",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "app/forms.py:1:from textkit.old_strings import slugify\napp/views.py:1:from textkit.old_strings import slugify, truncate"
+    },
+    {
+     "tool": "apply_patch",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": null,
+     "output_excerpt": "applied: change app/views.py (+2 -1); change app/forms.py (+1 -1)"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
+    },
+    {
+     "tool": "run_tests",
+     "ok": true,
+     "rejected": false,
+     "error": null,
+     "exit_code": 0,
+     "output_excerpt": "exit=0\n...                                                                      [100%]\n3 passed in <duration>\n"
     }
    ]
   }

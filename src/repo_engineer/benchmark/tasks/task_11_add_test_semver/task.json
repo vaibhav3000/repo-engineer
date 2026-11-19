@@ -1,0 +1,15 @@
+{
+  "task_id": "task_11_add_test_semver",
+  "description": "versions/semver.py has no tests. Add tests/test_semver.py covering valid versions, pre-release tags, leading zeros and malformed strings. The verifier checks that your tests catch seeded bugs and survive harmless rewrites.",
+  "verify_cmd": "python -m pytest tests/ -q",
+  "protected_paths": ["versions/"],
+  "mutants": [
+    {"name": "leading zeros allowed", "path": "versions/semver.py", "find": "NUMBER = r\"(0|[1-9]\\d*)\"", "replace": "NUMBER = r\"(\\d+)\""},
+    {"name": "patch number optional", "path": "versions/semver.py", "find": "rf\"{NUMBER}\\.{NUMBER}\\.{NUMBER}\"", "replace": "rf\"{NUMBER}\\.{NUMBER}(\\.{NUMBER})?\""},
+    {"name": "pre-release rejected", "path": "versions/semver.py", "find": "    rf\"(-[0-9A-Za-z.-]+)?\"\n", "replace": ""}
+  ],
+  "neutral_edits": [
+    {"name": "rewritten docstring", "path": "versions/semver.py", "find": "\"\"\"True for a MAJOR.MINOR.PATCH version with an optional pre-release tag.\"\"\"", "replace": "\"\"\"Whether text is a valid semantic version.\"\"\""},
+    {"name": "explicit boolean", "path": "versions/semver.py", "find": "    return VERSION.fullmatch(text) is not None", "replace": "    if VERSION.fullmatch(text) is None:\n        return False\n    return True"}
+  ]
+}
