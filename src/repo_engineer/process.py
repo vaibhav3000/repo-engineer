@@ -23,7 +23,8 @@ from typing import IO
 
 # Variables a Python test run needs to start and behave normally. Everything
 # else in the runtime's environment is withheld from the child, including
-# provider API keys, PYTHONPATH, PYTEST_ADDOPTS and PYTEST_PLUGINS.
+# provider API keys, PYTHONPATH, PYTEST_ADDOPTS and PYTEST_PLUGINS, and the
+# user-name variables (pytest would otherwise put the name in tmp_path).
 ENV_PASSTHROUGH = frozenset(
     {
         "PATH",
@@ -37,9 +38,6 @@ ENV_PASSTHROUGH = frozenset(
         "TMPDIR",
         "HOME",
         "USERPROFILE",
-        "USERNAME",
-        "USER",
-        "LOGNAME",
         "APPDATA",
         "LOCALAPPDATA",
         "LANG",

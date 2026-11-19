@@ -74,3 +74,18 @@ def test_absolute_host_paths_are_redacted_from_output(workspace: Path) -> None:
     assert "CWD <workspace>" in obs.output_excerpt
     assert str(workspace) not in obs.output_excerpt
     assert os.path.dirname(sys.executable) not in obs.output_excerpt
+
+
+def test_failing_tmp_path_output_does_not_name_the_user(workspace: Path) -> None:
+    import getpass
+
+    write_test(
+        workspace,
+        "test_tmp.py",
+        "def test_tmp(tmp_path):\n    assert str(tmp_path) == ''\n",
+    )
+    obs = run(ToolRegistry(workspace), "python -m pytest -q tests/test_tmp.py")
+    assert obs.exit_code == 1, obs
+    user = getpass.getuser().lower()
+    assert user not in obs.output_excerpt.lower()
+    assert "pytest-of-" not in obs.output_excerpt
