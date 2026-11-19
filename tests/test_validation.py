@@ -73,3 +73,28 @@ def test_catastrophic_regex_hits_the_search_deadline(workspace: Path) -> None:
 def test_search_still_finds_matches(workspace: Path) -> None:
     obs = ToolRegistry(workspace).execute(ToolCall("search", {"pattern": "value"}))
     assert obs.ok and "app.py:1:VALUE = 1" in obs.output_excerpt
+
+
+def test_a_regex_that_overflows_the_compiler_is_a_failure_not_a_crash(workspace: Path) -> None:
+    obs = ToolRegistry(workspace).execute(ToolCall("search", {"pattern": "a{4294967295}"}))
+    assert not obs.ok and not obs.rejected
+    assert "invalid regex" in error_text(obs)
+
+
+def test_an_unexpected_tool_exception_becomes_an_observation(workspace: Path) -> None:
+    from repo_engineer.tools import Permission, ToolSpec
+
+    def explode() -> str:
+        raise KeyError("boom")
+
+    reg = ToolRegistry(workspace)
+    reg.specs["explode"] = ToolSpec(
+        name="explode",
+        description="always fails",
+        permission=Permission.READ_ONLY,
+        required_args={},
+        run=explode,
+    )
+    obs = reg.execute(ToolCall("explode", {}))
+    assert not obs.ok and not obs.rejected
+    assert "KeyError" in error_text(obs)

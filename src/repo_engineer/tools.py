@@ -453,6 +453,15 @@ class ToolRegistry:
                 error=self.redact(str(exc)),
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
+        except Exception as exc:
+            # Any other failure inside a tool is still an observation: a
+            # planner-supplied call must never crash the runtime loop.
+            return Observation(
+                tool=call.tool,
+                ok=False,
+                error=self.redact(f"tool failed with {type(exc).__name__}: {exc}"),
+                latency_ms=(_time.perf_counter() - started) * 1000,
+            )
 
     def _describe_os_error(self, exc: OSError) -> str:
         """An OS error with its file shown relative to the workspace."""
@@ -566,8 +575,8 @@ class ToolRegistry:
     def _search(self, pattern: str, glob: str = "**/*.py") -> str:
         try:
             re.compile(pattern, re.IGNORECASE)
-        except re.error as exc:
-            raise ValueError(f"invalid regex: {exc}") from exc
+        except (re.error, OverflowError, RecursionError) as exc:
+            raise ValueError(f"invalid regex: {type(exc).__name__}: {exc}") from exc
         files: list[list[str]] = []
         total = 0
         for path in sorted(self._search_candidates(glob)):
