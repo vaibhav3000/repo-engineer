@@ -154,3 +154,12 @@ def test_mcp_serve_speaks_mcp_over_stdio(tmp_path: Path) -> None:
     tools, result = anyio.run(main)
     assert "apply_patch" in {t.name for t in tools.tools}
     assert not result.is_error and "x = 1" in result.content[0].text
+
+
+def test_a_live_bench_without_credentials_stops_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    code = cli.main(["bench", "--live", "--model", "m", "--results", str(tmp_path)])
+    assert code == 2 and "GEMINI_API_KEY" in capsys.readouterr().err
+    assert not (tmp_path / "llm_runs").exists()

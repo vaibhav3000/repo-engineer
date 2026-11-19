@@ -5,14 +5,19 @@ results/llm_runs/, together with the golden-style trace of every attempt, and
 refuses to overwrite an existing file. Repeated runs therefore accumulate a
 record, failures included, instead of replacing each other. Each attempt gets a
 fresh planner, so no state or usage leaks from one attempt into the next.
+
+Each task reports pass@1 and pass@k (k = attempts) with the unbiased estimator
+1 - C(n-c, k) / C(n, k) for n attempts and c passes; the summary averages
+them over tasks.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +72,8 @@ def run_live_benchmark(
                 summary["trace"] = trace_name
                 entry["attempts"].append(summary)
             entry["passes"] = sum(1 for a in entry["attempts"] if a["success"])
+            entry["pass_at_1"] = round(pass_at_k(attempts, entry["passes"], 1), 4)
+            entry[f"pass_at_{attempts}"] = round(pass_at_k(attempts, entry["passes"], attempts), 4)
             record["tasks"].append(entry)
     all_attempts = [a for t in record["tasks"] for a in t["attempts"]]
     record["summary"] = {
@@ -78,10 +85,30 @@ def run_live_benchmark(
         "total_prompt_tokens": sum(a.get("llm_prompt_tokens", 0) for a in all_attempts),
         "total_completion_tokens": sum(a.get("llm_completion_tokens", 0) for a in all_attempts),
         "total_planner_errors": sum(a["planner_errors"] for a in all_attempts),
+        "k": attempts,
+        "pass_at_1": _mean(t["pass_at_1"] for t in record["tasks"]),
+        f"pass_at_{attempts}": _mean(t[f"pass_at_{attempts}"] for t in record["tasks"]),
     }
+    costs = [a["llm_cost_usd"] for a in all_attempts if "llm_cost_usd" in a]
+    if costs:
+        record["summary"]["total_cost_usd"] = round(sum(costs), 6)
     traces_dir.mkdir(parents=True, exist_ok=True)
     _write_json(results_path, record)
     return results_path
+
+
+def pass_at_k(n: int, c: int, k: int) -> float:
+    """Unbiased estimate that at least one of k attempts passes, from n with c passes."""
+    if not 0 <= c <= n or not 1 <= k <= n:
+        raise ValueError(f"need 0 <= c <= n and 1 <= k <= n, got n={n} c={c} k={k}")
+    if n - c < k:
+        return 1.0
+    return 1.0 - math.comb(n - c, k) / math.comb(n, k)
+
+
+def _mean(values: Iterable[float]) -> float:
+    items = list(values)
+    return round(sum(items) / len(items), 4) if items else 0.0
 
 
 def _write_json(path: Path, data: Any) -> None:

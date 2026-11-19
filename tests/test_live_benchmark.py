@@ -79,3 +79,26 @@ def test_committed_live_results_are_internally_consistent() -> None:
         assert task["llm_calls"] <= task["steps"], task["task_id"]
         planner_errors = sum(1 for e in task["errors"] if e.startswith("planner error"))
         assert task["planner_errors"] == planner_errors, task["task_id"]
+
+
+def test_pass_at_k_uses_the_unbiased_estimator() -> None:
+    from repo_engineer.benchmark.live import pass_at_k
+
+    assert pass_at_k(3, 1, 1) == pytest.approx(1 / 3)
+    assert pass_at_k(3, 1, 2) == pytest.approx(2 / 3)
+    assert pass_at_k(3, 1, 3) == 1.0
+    assert pass_at_k(3, 0, 3) == 0.0
+    assert pass_at_k(5, 5, 1) == 1.0
+    with pytest.raises(ValueError):
+        pass_at_k(2, 1, 3)
+
+
+def test_live_results_report_pass_at_k(tmp_path: Path) -> None:
+    path = run_live_benchmark(
+        ["task_01_fix_off_by_one"], 3, tmp_path, FakeModelPlanner, stamp="20261120T000000Z"
+    )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    task = data["tasks"][0]
+    assert task["pass_at_1"] == 1.0 and task["pass_at_3"] == 1.0
+    assert data["summary"]["pass_at_1"] == 1.0 and data["summary"]["pass_at_3"] == 1.0
+    assert data["summary"]["k"] == 3

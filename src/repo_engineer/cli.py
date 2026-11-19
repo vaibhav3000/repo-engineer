@@ -61,7 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--task", required=True, help="what to change, in plain words")
     run.add_argument("--verify-cmd", default=DEFAULT_VERIFY_CMD)
     run.add_argument("--protect", nargs="*", default=[], help="paths the agent may not modify")
-    run.add_argument("--planner", choices=("native", "json"), default="native")
     _model_options(run)
     _sandbox_option(run)
     run.add_argument("--max-steps", type=int, default=40)
@@ -101,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _model_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--planner", choices=("native", "json"), default="native")
     parser.add_argument("--provider", choices=PROVIDERS, default="gemini")
     parser.add_argument("--model", default=None, help="model id (required for live runs)")
     parser.add_argument("--base-url", default=None, help="endpoint for --provider local")
