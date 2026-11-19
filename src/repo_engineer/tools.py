@@ -29,6 +29,7 @@ from typing import Any
 from .jail import JailViolation, path_components
 from .process import child_env, run_bounded
 from .redaction import Redactor
+from .snapshot import WorkspaceSnapshot
 from .state import Observation, ToolCall
 
 
@@ -189,6 +190,7 @@ class ToolRegistry:
         self.exec_timeout_s = exec_timeout_s
         self.search_timeout_s = search_timeout_s
         self.redact = Redactor(self.workspace)
+        self.snapshot = WorkspaceSnapshot(self.workspace)
         self.specs: dict[str, ToolSpec] = {}
         self._register_defaults()
 
@@ -284,7 +286,7 @@ class ToolRegistry:
         self._register(
             ToolSpec(
                 name="git_diff",
-                description="Unified diff of workspace changes (empty when git is absent).",
+                description="Unified diff of workspace changes since the run started.",
                 permission=Permission.READ_ONLY,
                 required_args={},
                 run=self._git_diff,
@@ -584,17 +586,13 @@ class ToolRegistry:
             handle.write(text)
 
     def _git_diff(self) -> str:
-        try:
-            proc = subprocess.run(
-                ["git", "diff", "--no-color"],
-                cwd=self.workspace,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            return proc.stdout or "(no changes)"
-        except (OSError, subprocess.TimeoutExpired):
-            return "(git unavailable)"
+        """Diff against the snapshot taken when the registry was created.
+
+        Computed in-process: no git binary runs, so repository configuration
+        (core.fsmonitor, diff.external) cannot execute anything, and nothing
+        outside the workspace is read.
+        """
+        return self.snapshot.diff()
 
     def _run_tests(self, cmd: str) -> CommandResult:
         args = self.parse_test_command(cmd)
