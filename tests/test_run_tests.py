@@ -187,3 +187,18 @@ def test_workspace_pytest_config_and_its_pythonpath_are_honoured(tmp_path: Path)
     assert obs.ok and obs.exit_code == 0, obs
     argv = reg.pytest_argv([])
     assert "outside" not in argv[argv.index("-o") + 1]
+
+
+@pytest.mark.parametrize("name", ["--co", "@args", "-p"])
+def test_workspace_files_named_like_flags_stay_paths(workspace: Path, name: str) -> None:
+    """A file named '--co' or '@args' must reach pytest as a path, never as an
+    option or an argument file (found by the post-fix adversarial review)."""
+    outside = workspace.parent / "outside_a.xml"
+    (workspace / "args").write_text(f"--junitxml={outside.as_posix()}\n", encoding="utf-8")
+    (workspace / name).write_text("x", encoding="utf-8")
+    reg = ToolRegistry(workspace)
+    args = reg.parse_test_command(f"python -m pytest -q ./{name} tests")
+    assert [a for a in args if a not in ("-q",)] == [f"./{name}", "./tests"]
+    obs = run(reg, f"python -m pytest -q ./{name} tests")
+    assert not outside.exists()
+    assert "1 test collected" not in obs.output_excerpt

@@ -869,7 +869,10 @@ class ToolRegistry:
             target = self.jailed_path(path_part)
             if not target.exists():
                 raise JailViolation(f"test path {path_part!r} does not exist in the workspace")
-            args.append(self._display(target) + separator + node)
+            # Always "./"-prefixed: a file named "--co" or "@args" must reach
+            # pytest as a path, never as an option or an argument file.
+            rel = self._display(target)
+            args.append(("." if rel == "." else f"./{rel}") + separator + node)
             i += 1
         return args
 
