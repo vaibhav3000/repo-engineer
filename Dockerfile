@@ -1,10 +1,10 @@
 # A clean Linux environment for the deterministic benchmark and the test suite.
 #
-# This image is NOT the agent sandbox. Inside it, run_tests still executes
-# agent-written test code with the rights of the container user, and the
-# container has whatever network access `docker run` gives it. Use
-# `--network none` (as the README does); per-call OS isolation of run_tests is
-# planned work, not something this image provides.
+# This image is NOT the agent sandbox. There is no Docker daemon inside it, so
+# the runtime uses the local sandbox here and agent-written test code runs with
+# the rights of the container user and whatever network `docker run` gives it.
+# Use `--network none` (as the README does). The Docker sandbox runs tests in
+# its own pytest-only image, built from src/repo_engineer/sandbox/Dockerfile.
 #
 # The base image is pinned by digest (python:3.13-slim, a version CI tests).
 

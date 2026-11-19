@@ -2,9 +2,10 @@
 
 These controls protect the runtime from the processes it starts: a test run
 cannot read the runtime's credentials, exhaust its memory with output, or keep
-it waiting after the deadline. They do not contain the code the tests execute.
-That code runs as the host user, with the host user's filesystem and network
-access, and only an OS-level sandbox can take that away.
+it waiting after the deadline. They are the local sandbox's building blocks
+and do not isolate the code the tests execute: that code runs as the host
+user, with the host user's filesystem and network access. The Docker sandbox
+(sandbox/docker.py) is the one that isolates it.
 """
 
 from __future__ import annotations

@@ -51,14 +51,17 @@ schema-validated calls, subject to AUTO/ASK/DENY permission policies and a
 workspace path jail; the single execution tool runs pytest with an
 allowlist of flags and paths. VERIFY restores the files the task protects,
 re-runs the suite and accepts completion only on exit status 0 backed by a
-test report with passing tests. With a deterministic planner that replays
-known fixes, the agent completes all four benchmark tasks with zero failed
-tool calls, and the committed results regenerate byte for byte on Windows
-and Linux. A live Gemini 2.5 Flash planner completed the two tasks it was
-run on. Of 39 adversarial tool calls, 29 are rejected before anything runs
-and 9 run without gaining anything; the remaining one is a documented
-residual: test code the agent writes still runs as the host user, which
-only an OS-level sandbox can prevent.
+test report with passing tests. Agent-written code runs in a sandbox: by
+default a fresh Docker container per test run with no network and a
+read-only workspace, otherwise a local backend with resource limits. With a
+deterministic planner that replays known fixes, the agent completes all
+twelve multi-file benchmark tasks with zero failed tool calls, and the
+committed results regenerate byte for byte on Windows and Linux and under
+either sandbox. A live Gemini 2.5 Flash planner completed the two tasks it
+was run on. Of 47 adversarial tool calls against the Docker sandbox, 29 are
+rejected before anything runs and 17 run without gaining anything; the one
+residual, code under test forging its own test report, happens inside the
+test process and no sandbox can prevent it.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -263,10 +266,16 @@ around every such run. The planner's claim is never consulted. Files changed by 
 edits are tracked by their workspace path, and the full state serializes to
 a JSON trace.
 
-The planner interface has three implementations with distinct, stated
+The planner interface has four implementations with distinct, stated
 roles. \texttt{ScriptedPlanner} replays per-task recipes that already
 contain the fix: it is a test fixture that exercises the runtime at zero
-cost, and it solves nothing. \texttt{LLMPlanner} packages the task, the
+cost, and it solves nothing. \texttt{NativeToolPlanner}, the default for
+models, uses each provider's native function calling (Gemini, OpenAI,
+Anthropic or a local OpenAI-compatible server) with tool schemas generated
+from the same specifications the registry enforces, answers every call id
+with the runtime's observation, and compacts old tool results to fit a
+context budget. The earlier \texttt{LLMPlanner}, kept for endpoints without
+function calling, packages the task, the
 repository listing, the tool catalog, any replan reason and the last ten
 history entries into a prompt and parses a JSON reply; proposals then pass
 through the identical validation pipeline. \texttt{RecordedPlanner} replays
@@ -276,14 +285,14 @@ captured actions for tests without network access.
 \label{sec:eval}
 
 \subsection{Deterministic Benchmark}
-Four self-contained task repositories are copied into fresh workspaces per
-run, and the agent runs with the scripted planner (Table~\ref{tab:det}).
-All four tasks complete with zero failed tool calls; the first test run of
-the failing-test task fails by construction, producing the single replan.
-The results file and the per-task traces carry no paths, timestamps or wall
-times, and regenerating them reproduces the committed files byte for byte;
-this was checked on Windows and in Linux containers with Python 3.11 and
-3.13, and CI repeats the check. Because the recipes contain the answers,
+Twelve self-contained task repositories, most with several modules, are
+copied into fresh workspaces per run, and the agent runs with the scripted
+planner (Table~\ref{tab:det}). All twelve complete with zero failed tool
+calls; the three replans come from recipes that run the failing suite
+before fixing it. The results file and the per-task traces carry no paths,
+timestamps or wall times, and regenerating them reproduces the committed
+files byte for byte under the local and the Docker sandbox; this was
+checked on Windows and in Linux containers, and CI repeats the check. Because the recipes contain the answers,
 this benchmark measures the runtime machinery (validation, state
 transitions, verification and trace capture) and nothing about model
 capability.
@@ -302,8 +311,16 @@ fix off-by-one loop & yes & 5 & 0 \\
 repair failing test & yes & 5 & 1 \\
 add missing test & yes & 5 & 0 \\
 constrained refactor & yes & 7 & 0 \\
+bug behind another module & yes & 6 & 1 \\
+rename across a package & yes & 5 & 0 \\
+add tests (mutants) & yes & 4 & 0 \\
+extract a shared helper & yes & 4 & 0 \\
+signature change & yes & 4 & 0 \\
+shared mutable default & yes & 5 & 1 \\
+add tests (regexes) & yes & 4 & 0 \\
+stale imports & yes & 4 & 0 \\
 \midrule
-Total & 4/4 & 22 & 1 \\
+Total & 12/12 & 58 & 3 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -347,7 +364,8 @@ pipeline and produce verified completions, and nothing more. It is not a
 SWE-bench result.
 
 \subsection{Adversarial Evidence}
-A generator script replays 39 hostile tool calls against a real registry,
+A generator script replays hostile tool calls against a real registry and
+one sandbox backend,
 each in a fresh workspace with a secret directory beside it, a directory
 link pointing at that secret, protected tests and a repository whose git
 configuration would run a hook. Table~\ref{tab:attacks} summarizes the
@@ -356,33 +374,38 @@ evidence to match exactly with no breach. An independent adversarial review
 of the hardened runtime found further bypasses (among them a workspace file
 named like a pytest argument file, and planted bytecode that replaced a
 protected test); they were fixed, and the three expressible as tool calls
-were added to the evidence. The single residual is the one
-this design cannot close: test code written by the agent runs as the host
-user and can write outside the workspace.
+were added to the evidence. Eight further attacks target the sandbox
+itself: reading or writing host files, the network, a process that outlives
+the run, memory, a fork bomb, filling the disk, a conftest planted during a
+run, and forging the report. Under the local backend four of them are
+documented residuals; under Docker all are contained except report forging,
+which happens inside the test process on every backend.
 
 \begin{table}[t]
 \centering
-\caption{Adversarial tool calls by category. Rejected: refused before
-anything ran. Contained: ran, and the recorded evidence shows no gain.}
+\caption{Adversarial tool calls by category as rejected/contained/residual,
+for the local and the Docker sandbox. Rejected: refused before anything
+ran. Contained: ran, and the recorded evidence shows no gain.}
 \label{tab:attacks}
 \small
-\begin{tabular}{@{}lrrr@{}}
+\begin{tabular}{@{}lcc@{}}
 \toprule
-Category & Rejected & Contained & Residual \\
+Category & Local & Docker \\
 \midrule
-path escape & 6 & 0 & 0 \\
-shell commands & 2 & 0 & 0 \\
-malformed calls & 3 & 1 & 0 \\
-test command abuse & 8 & 1 & 0 \\
-path aliases & 3 & 0 & 0 \\
-git metadata & 2 & 1 & 0 \\
-links & 2 & 3 & 0 \\
-verification tampering & 2 & 0 & 0 \\
-resource limits & 1 & 2 & 0 \\
-credentials & 0 & 1 & 0 \\
-agent test code & 0 & 0 & 1 \\
+path escape & 6/0/0 & 6/0/0 \\
+shell commands & 2/0/0 & 2/0/0 \\
+malformed calls & 3/1/0 & 3/1/0 \\
+test command abuse & 8/1/0 & 8/1/0 \\
+path aliases & 3/0/0 & 3/0/0 \\
+git metadata & 2/1/0 & 2/1/0 \\
+links & 2/3/0 & 2/3/0 \\
+verification tampering & 2/1/0 & 2/1/0 \\
+resource limits & 1/2/0 & 1/2/0 \\
+credentials & 0/1/0 & 0/1/0 \\
+agent test code & 0/1/4 & 0/7/0 \\
+report forging & 0/0/1 & 0/0/1 \\
 \midrule
-Total (39) & 29 & 9 & 1 \\
+Total & 29/11/5 (45) & 29/17/1 (47) \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -390,20 +413,19 @@ Total (39) & 29 & 9 & 1 \\
 \section{Limitations}
 \label{sec:limits}
 (1) The scripted planner is a fixture; beyond the two live tasks, the
-benchmark says nothing about model-driven competence. (2) Test execution is
-code execution: tests the agent writes run as the host user with the host's
-filesystem and network access, and the runtime's controls (environment
-allowlist, deadline, tree kill, output bound) protect the runtime, not the
-host. An OS-level sandbox is the planned remedy. (3) Verification runs the
-code under test in the same process as pytest, so code written to forge the
-test report on purpose could still pass, and on the add-a-test task a test
-that inspects the source text for specific tokens can pass the mutant and
-neutral-edit checks; a verifier outside the agent's reach needs the same
-sandbox. (4) Write-time link checks narrow but do not close the race with a
-concurrent process, and a process that leaves the tree on purpose (a new
-session on POSIX, or one created through a service such as WMI on Windows)
-escapes the tree kill. (5) There is no transactional rollback
-of edits; the trace is the review artifact. (6) Tool output reaches the
+benchmark says nothing about model-driven competence. (2) Without Docker,
+test execution is code execution on the host: the local backend's limits
+protect the runtime, not the host's files or network, and a process that
+leaves the tree on purpose (a new session on POSIX, WMI on Windows) escapes
+the tree kill. (3) Verification runs the code under test in the same
+process as pytest, so code written to forge the test report on purpose
+could still pass on any backend, and on the add-a-test tasks a test that
+inspects the source text for specific tokens can pass the mutant and
+neutral-edit checks. (4) Under the local backend, write-time link checks
+narrow but do not close the race with leftover test code; under Docker the
+workspace is read-only to tests. (5) Multi-file patches are applied all or
+nothing, but successive tool calls are not one transaction; the trace is
+the review artifact. (6) Tool output reaches the
 planner verbatim apart from redaction of credentials and host paths, so
 prompt-injection resistance depends on the planner; the runtime bounds what
 an injected instruction can do. (7) The tool set is intentionally minimal.
@@ -414,11 +436,11 @@ problem in coding agents is the governance around the model: typed tool
 schemas with unambiguous mutation semantics, a jail and an argument-level
 allowlist that keep the planner's own calls inside the workspace, budgets
 that bound every run, and a verification gate the planner cannot steer. The
-deterministic benchmark shows the machinery working 4/4 with zero failed
+deterministic benchmark shows the machinery working 12/12 with zero failed
 tool calls and reproducible results; the live Gemini run shows a real
 model's proposals surviving the same pipeline 2/2; and the adversarial
 evidence states what is stopped and what is not. The project's limits
-(fixture planner, no OS-level sandbox yet, small benchmark) are part of its
+(fixture planner, report forging, a still small benchmark) are part of its
 published specification.\footnote{\url{https://github.com/vaibhav3000/repo-engineer}}
 
 \begin{thebibliography}{4}

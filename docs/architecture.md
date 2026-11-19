@@ -102,9 +102,12 @@ The child gets an environment allowlist (PATH, temp and home directories,
 locale and a few fixed settings; no API keys, no user-name variables, no
 PYTHONPATH, no PYTEST_ADDOPTS),
 a deadline after which the whole process tree is killed (a job object on
-Windows, the process group on POSIX), and a bounded output buffer. The code
-the tests execute still runs as the host user; only an OS sandbox can change
-that.
+Windows, the process group on POSIX), and a bounded output buffer. All of
+this is the local sandbox; where the code the tests execute runs is decided by
+the `Sandbox` the registry was given (`sandbox/`). Under the Docker sandbox it
+runs in a fresh container with the workspace read-only and no network; under
+the local sandbox it runs as the host user. See `docs/design/step2.md` for the
+backends, their limits and the threat model.
 
 ## Verification rule
 

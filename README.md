@@ -40,25 +40,28 @@ addresses all three explicitly:
 | Path escapes | paths are checked as text before any filesystem access, then must be direct paths inside the workspace (no links); `.git`, pytest control files and task-protected paths are read-only |
 | Infinite loops | step budget + replan budget + planner-error budget -> FAILED |
 
-What this does **not** stop: the tests that `run_tests` executes include code
-the agent wrote, and that code runs as the host user with the host's
-filesystem and network access. The controls above protect the runtime and keep
-the planner's own tool calls inside the workspace; containing test code needs
-an OS-level sandbox, which is planned and not built yet. Tool output also
-reaches the planner verbatim (apart from redaction of credentials and host
-paths), so prompt injection through file contents remains a risk the runtime
-bounds but does not remove.
+Agent-written code runs in a sandbox. With Docker available (the default),
+every pytest run gets a fresh container with no network, a read-only root and
+workspace, a size-limited tmpfs as the only writable place, no capabilities,
+a non-root user and memory, CPU and process limits, and the container is
+removed afterwards. Without Docker the local sandbox applies resource limits
+and a process-tree kill but cannot isolate the filesystem or network; its
+residuals are listed below and in `docs/design/step2.md`. No sandbox can stop
+code under test from faking its own test results, so that stays a documented
+residual on every backend. Tool output reaches the planner verbatim (apart
+from redaction of credentials and host paths), so prompt injection through
+file contents remains a risk the runtime bounds but does not remove.
 
 ## Two benchmark modes, recorded separately
 
 **Deterministic mode (reproducible).** `python scripts/run_benchmark.py`
-runs four software-engineering tasks in isolated workspace copies with the
-ScriptedPlanner, which replays fixed recipes that already contain each fix. No
+runs twelve multi-file software-engineering tasks in isolated workspace copies
+with the ScriptedPlanner, which replays fixed recipes that already contain each fix. No
 network, no API keys. It exercises the runtime (validation, state machine,
 verification, traces), not a model: it solves nothing by itself. The results
 and traces carry no paths, timestamps or wall times and regenerate byte for
-byte; CI regenerates them on Windows and Linux and fails if `results/`
-changes.
+byte, under the local and the Docker sandbox alike; CI regenerates them on
+Windows and Linux and fails if `results/` changes.
 
 | task | success | steps | replans | failed tool calls |
 |---|---|---|---|---|
@@ -66,27 +69,37 @@ changes.
 | repair failing test | yes | 5 | 1 | 0 |
 | add missing test | yes | 5 | 0 | 0 |
 | constrained refactor | yes | 7 | 0 | 0 |
+| bug behind another module | yes | 6 | 1 | 0 |
+| rename across a package (one patch) | yes | 5 | 0 | 0 |
+| add tests, 3 mutants and 2 neutral edits | yes | 4 | 0 | 0 |
+| extract a shared helper | yes | 4 | 0 | 0 |
+| signature change and its callers | yes | 4 | 0 | 0 |
+| shared mutable default | yes | 5 | 1 | 0 |
+| add tests, 3 mutants and 2 neutral edits | yes | 4 | 0 | 0 |
+| stale imports after a move | yes | 4 | 0 | 0 |
 
 Committed in `results/benchmark_results.json`, with per-task traces in
 `results/benchmark_traces/`.
 
-**Real LLM mode.** `python scripts/run_llm_benchmark.py` runs tasks with
-`LLMPlanner` (gemini-2.5-flash via an OpenAI-compatible endpoint, temperature
-0). The model sees the task, the repository listing, the tool schemas and the
-recent history, and answers with a JSON tool call; the runtime validates,
-jails and permission-checks every proposal and still requires its own
-verification run to declare COMPLETE. Each invocation now writes a new file
-under `results/llm_runs/` with a trace per attempt and never overwrites an
-earlier run.
+**Real LLM mode.** `repo-engineer bench --live --provider P --model M
+--attempts 3` (or `python scripts/run_llm_benchmark.py` with the same options)
+runs tasks with `NativeToolPlanner`, which uses each provider's native function
+calling (Gemini, OpenAI, Anthropic or a local OpenAI-compatible server). The
+runtime validates, jails and permission-checks every proposal and still
+requires its own verification run to declare COMPLETE. Each invocation writes a
+new file under `results/llm_runs/` with pass@1 and pass@k per task and a trace
+per attempt, and never overwrites an earlier run. No live run of the Step 2
+planner has been recorded yet.
 
-The one live run on record (2026-09-17, `results/llm_benchmark_results.json`):
+The one live run on record (2026-09-17, `results/llm_benchmark_results.json`)
+used the earlier prompt-parsed JSON planner:
 
 | task | success | steps | LLM calls | failed tool calls | notes |
 |---|---|---|---|---|---|
 | fix off-by-one loop | yes | 5 | 4 | 0 | edited only shop/cart.py |
 | add missing test | yes | 4 | 3 | 0 | wrote its own test file; 2 HTTP 429 errors absorbed |
 
-That run covered two of the four tasks once each, used an earlier revision of
+That run covered two of the original four tasks once each, used an earlier revision of
 the runtime (before the hardening described here) and kept no trace. The two
 429 errors surfaced after the provider client's own retries were exhausted;
 the runtime counted them as planner errors within its budget and the task
@@ -96,14 +109,24 @@ computed from those recorded counters, as its `notes` field explains. API keys
 come from environment variables, are withheld from test processes and are
 redacted from observations, traces and prompts.
 
-**Adversarial tool calls: 39 attempts, 0 breaches.**
-`python scripts/run_jail_attacks.py` replays 39 hostile calls against a real
-`ToolRegistry` and writes `results/jail_attack_evidence.json`; a test reruns
-them and requires that file to match exactly. 29 are rejected before anything
-runs, 9 run but gain nothing (the evidence records what was checked), and 1 is
-the documented residual. Three of the attacks come from an independent review
-of the hardened runtime, which also found the issues fixed in the last round
-of commits (see the git log).
+**Adversarial tool calls: 0 breaches on either sandbox.**
+`python scripts/run_jail_attacks.py --backend local|docker` replays hostile
+calls against a real `ToolRegistry` and writes
+`results/jail_attack_evidence.json` (local) or
+`results/jail_attack_evidence_docker.json`; tests rerun them and require both
+files to match exactly.
+
+| backend | attacks | rejected | contained | residual | breached |
+|---|---|---|---|---|---|
+| local | 45 | 29 | 11 | 5 | 0 |
+| docker | 47 | 29 | 17 | 1 | 0 |
+
+The local residuals are agent-written test code reading and writing host
+files, reaching the network and leaving the process tree, plus report
+forging; under Docker all of those are contained except report forging, which
+happens inside the test process and no sandbox can prevent. The fork bomb and
+disk-fill attacks are recorded for Docker only, because their local outcome
+depends on the operating system.
 
 | category | examples | outcome |
 |---|---|---|
@@ -117,7 +140,9 @@ of commits (see the git log).
 | verification tampering | planting `conftest.py`, editing a protected test | rejected (2) |
 | resource limits | a 1 MB+ file, a catastrophic regex, nested `**` globs over a deep tree | rejected (1), contained (2) |
 | credentials | test code reading an API key from the environment | contained (1) |
-| agent-written test code | a test that writes a file outside the workspace | **residual (1)**: it succeeds, as documented above |
+| agent-written test code | writing or reading outside the workspace, the network, a process that outlives the run | **residual (4)** locally; contained under Docker |
+| sandbox limits | 3 GiB allocation (both); 400 processes and 1 GiB to /tmp (Docker only) | contained |
+| verification | a conftest planted during a run; code under test forging its JUnit report | contained (1); **residual (1)** on every backend |
 
 ## Architecture
 
@@ -183,16 +208,17 @@ flowchart LR
 A planner claiming success changes nothing: COMPLETE is reachable only from
 VERIFY, and VERIFY runs the suite itself on files the agent could not have
 changed. Code under test still shares a process with pytest, so code written
-on purpose to forge the test report could pass; that also needs the sandbox.
+on purpose to forge the test report could pass on any backend
+(`docs/adr/0007-report-forging-is-outside-the-sandbox.md`).
 
 ## Benchmark flow (deterministic and live modes)
 
 ```mermaid
 flowchart LR
-    T["4 tasks: bug fix,<br/>failing test, missing test,<br/>refactor"] --> C["fresh workspace copy<br/>per task (isolation)"]
+    T["12 tasks: bug fixes,<br/>refactors, add-a-test,<br/>API changes"] --> C["fresh workspace copy<br/>per task (isolation)"]
     C --> R["AgentRuntime:<br/>ScriptedPlanner or live Gemini"]
     R --> V["VERIFY: task test suite"]
-    V --> RES["results/benchmark_results.json<br/>(deterministic: 4/4)<br/>results/llm_benchmark_results.json<br/>(live: 2/2, one run)"]
+    V --> RES["results/benchmark_results.json<br/>(deterministic: 12/12)<br/>results/llm_benchmark_results.json<br/>(live: 2/2, one run)"]
     style V fill:#d4f0d4
 ```
 
@@ -203,23 +229,31 @@ Components (src/repo_engineer/):
 
 - `state.py`: `State` enum, legal-transition table, serializable `AgentState`,
   `StateMachine` with step and replan budgets.
-- `tools.py`: `ToolSpec` schemas and `ToolRegistry` with `list_tree`,
-  `search`, `read_file`, `apply_edit`, `write_file`, `git_diff` and
+- `tools.py`: `ToolSpec` schemas (published as JSON Schema) and
+  `ToolRegistry` with `list_tree`, `search`, `read_file`, `apply_edit`,
+  `write_file`, `apply_patch`, `repo_map`, `find_symbol`, `git_diff` and
   `run_tests`; permission classes (READ_ONLY / MUTATING / EXECUTION) with
   AUTO / ASK / DENY policies (AUTO by default), central path jailing,
   protected paths and the verification run.
+- `sandbox/`: the `Sandbox` interface with the Docker and local backends.
 - `jail.py`: the lexical path rules. `process.py`: child environment,
   bounded output and process-tree kill. `redaction.py`: removes credentials
   and host paths from output. `snapshot.py`: the starting snapshot behind
-  `git_diff` and file restoration.
-- `planner.py`: `Planner` ABC; `ScriptedPlanner` (recipes, used by the
-  benchmark), `LLMPlanner` (live LLM, requires explicit environment
-  configuration) and `RecordedPlanner` (test double).
-- `agent.py`: `AgentRuntime`, the loop described above, plus JSON trace export.
-- `benchmark/`: the harness, the four task repos (with protected paths and,
-  for the add-a-test task, seeded mutants and behaviour-preserving edits),
-  the live-run recorder and the
-  jail-attack generator.
+  `git_diff` and file restoration. `patch.py`: strict unified diffs.
+  `repo_map.py`: the ast symbol index. `context.py`: context budgeting.
+- `models/`: provider adapters with native function calling and one retry
+  policy. `native_planner.py`: the default model-backed planner.
+  `planner.py`: `Planner` ABC, `ScriptedPlanner` (recipes), the
+  prompt-parsed `LLMPlanner` (fallback for endpoints without function
+  calling) and `RecordedPlanner` (test double).
+- `mcp_server.py` and `mcp_tools.py`: the registry served over MCP, and
+  external MCP servers mounted through the sandbox.
+- `agent.py`: `AgentRuntime`, the loop described above. `trace.py`: the
+  streamed JSONL audit trace. `replay.py`: offline replay. `cli.py`: the
+  `repo-engineer` command.
+- `benchmark/`: the harness, the twelve task repos (with protected paths and,
+  for the add-a-test tasks, seeded mutants and behaviour-preserving edits),
+  the live-run recorder with pass@k, and the jail-attack generator.
 
 ## Technical Report
 
@@ -229,46 +263,47 @@ with LaTeX source included under `reports/`.
 
 ## Honest limitations
 
-- Test execution is code execution. Agent-written tests run as the host user
-  with the host's filesystem and network access; the runtime's controls
-  (environment allowlist, deadline, tree kill, output bound) protect the
-  runtime, not the host. A process that leaves the tree on purpose (one that
-  starts its own session on POSIX, or one created through a service such as
-  WMI on Windows) also outlives the tree kill. An OS-level sandbox is the
-  planned fix.
+- Without Docker, test execution is code execution on the host: the local
+  sandbox's limits protect the runtime, not the host's files or network, and
+  a process that leaves the tree on purpose (a new session on POSIX, WMI on
+  Windows) outlives the tree kill. Use the Docker sandbox for untrusted code.
+- No sandbox makes a test verdict trustworthy against code written to fool
+  it (report forging, objects that compare equal to anything).
 - The scripted benchmark replays known fixes; it measures the runtime, not
   problem solving. The live run is the problem-solving evidence and is small:
   two tasks, once each, on an earlier runtime revision.
 - On the add-a-test task, a test that inspects the source text of the code
   under test (rather than its behaviour) can still pass the mutant and
   neutral-edit checks; that takes deliberate gaming.
-- Write-time link checks narrow, but do not close, the race with a
-  concurrent process (such as leftover test code) that swaps a directory for
-  a link.
-- Sequential file edits are the only mutation model; there is no multi-file
-  transactional rollback (the trace records every change for review).
-- There is no command-line entry point for pointing the agent at an arbitrary
-  repository yet; the benchmark scripts are the entry points.
+- With the local sandbox, write-time link checks narrow, but do not close,
+  the race with leftover test code that swaps a directory for a link; under
+  Docker test code cannot write the workspace at all.
 
 ## Reproducibility
 
 ```bash
 python -m pip install -e ".[dev]"
-python -m pytest -q                    # 205 tests (204 on Linux: one case is Windows-only)
-python scripts/run_benchmark.py        # 4/4 tasks; rewrites results/ byte for byte
-python scripts/run_jail_attacks.py     # 39 attacks, 0 breaches; rewrites the evidence file
+python -m pytest -q                    # 354 tests; Docker tests skip without a Linux daemon
+python scripts/run_benchmark.py        # 12/12 tasks; rewrites results/ byte for byte
+python scripts/run_jail_attacks.py --backend local   # 45 attacks, 0 breaches
+python scripts/run_jail_attacks.py --backend docker  # 47 attacks, 0 breaches
+repo-engineer run <repo> --task "..." --provider gemini --model <id>
 ruff check . && ruff format --check . && pyright
 ```
 
-Environment: Python >= 3.11. The only runtime dependency is pytest, because
-`run_tests` and VERIFY start pytest with the runtime's own interpreter.
+Environment: Python >= 3.11. The only required runtime dependency is pytest,
+because the local sandbox starts pytest with the runtime's own interpreter.
+The provider SDKs and `mcp` are optional extras (`[gemini]`, `[openai]`,
+`[anthropic]`, `[mcp]`, `[all]`). The Docker sandbox needs the docker CLI; set
+`REPO_ENGINEER_DOCKER_CMD` when the engine is reached another way (for example
+`wsl -d Ubuntu -e docker`).
 
 ## Project structure
 
 ```
 src/repo_engineer/       state.py tools.py jail.py process.py redaction.py snapshot.py
                          planner.py llm_provider.py agent.py benchmark/
-benchmark/tasks/         four self-contained task repos (task.json + code + tests)
+benchmark/tasks/         twelve self-contained task repos (task.json + code + tests)
 tests/                   runtime, jail, run_tests, verification, provider and harness tests
 results/                 committed benchmark output, traces and attack evidence
 docs/                    design_faq.md, architecture.md
@@ -278,7 +313,7 @@ docs/                    design_faq.md, architecture.md
 
 MIT. See LICENSE.
 
-## Docker (a clean Linux environment, not a sandbox)
+## Docker image for the benchmark (separate from the sandbox image)
 
 ```bash
 docker build -t repo-engineer .
@@ -287,6 +322,8 @@ docker build --target test -t repo-engineer-test .
 docker run --rm --network none repo-engineer-test     # test suite
 ```
 
-The image is pinned by digest and runs as an unprivileged user. It does not
-sandbox `run_tests`: inside it, agent-written test code still runs with the
-container user's rights, which is why the commands above disable networking.
+The image is pinned by digest and runs as an unprivileged user. Inside it the
+runtime uses the local sandbox (there is no Docker daemon in the container),
+which is why the commands above disable networking. The Docker sandbox uses its
+own pytest-only image, built from `src/repo_engineer/sandbox/Dockerfile` by
+`repo-engineer sandbox build` or on first use.

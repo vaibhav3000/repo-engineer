@@ -34,7 +34,8 @@ violation, unknown argument, wrong type, out-of-range value, oversized string)
 that is recorded in the trace and fed back to the planner as history. The
 runtime never crashes on planner output. The scripted benchmark shows zero
 failed tool calls because its recipes are valid; the rejection paths are
-exercised by the tests and by the 39 recorded adversarial calls.
+exercised by the tests and by the recorded adversarial calls (45 against the
+local sandbox, 47 against the Docker sandbox).
 
 **How do you prevent arbitrary shell execution?**
 There is no shell tool. `run_tests` is the only EXECUTION tool, and it does
@@ -48,11 +49,16 @@ rootdir and confcutdir to the workspace, passes an allowlisted environment,
 and kills the whole process tree at the deadline.
 
 **So can the agent still run arbitrary code?**
-Yes, and this is the main residual risk. The tests `run_tests` executes can
-include files the agent wrote, and that code runs as the host user with the
-host's filesystem and network access. The recorded attack evidence includes
-exactly this case and labels it as the residual. Containing it needs an
-OS-level sandbox (a per-call container or similar), which is planned work.
+It can run code inside the sandbox, which is what the sandbox is for. The tests
+`run_tests` executes can include files the agent wrote. Under the Docker
+sandbox (the default when Docker answers) that code runs in a fresh container
+with no network, a read-only root and workspace, a small tmpfs as its only
+writable place, no capabilities and memory, CPU and process limits, and the
+container is removed afterwards. Under the local sandbox it runs as the host
+user with the host's filesystem and network, and the attack evidence labels
+those cases as residuals. On every backend, code under test can fake its own
+test results; that is recorded as a residual too
+(`docs/adr/0007-report-forging-is-outside-the-sandbox.md`).
 
 **Path traversal?**
 Every declared path argument is jailed centrally in `execute()`, before the
