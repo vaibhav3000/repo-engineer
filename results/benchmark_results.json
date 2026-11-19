@@ -1,7 +1,5 @@
 {
-  "environment": {
-    "python_results_root": "runs"
-  },
+  "planner": "scripted",
   "tasks": [
     {
       "task_id": "task_01_fix_off_by_one",
@@ -9,11 +7,11 @@
       "final_state": "COMPLETE",
       "steps": 5,
       "replans": 0,
+      "planner_errors": 0,
       "files_changed": [
         "shop/cart.py"
       ],
       "errors": [],
-      "wall_time_s": 0.99,
       "failed_tool_calls": 0
     },
     {
@@ -22,11 +20,11 @@
       "final_state": "COMPLETE",
       "steps": 5,
       "replans": 1,
+      "planner_errors": 0,
       "files_changed": [
         "billing/invoice.py"
       ],
       "errors": [],
-      "wall_time_s": 1.46,
       "failed_tool_calls": 0
     },
     {
@@ -35,11 +33,11 @@
       "final_state": "COMPLETE",
       "steps": 5,
       "replans": 0,
+      "planner_errors": 0,
       "files_changed": [
         "tests/test_slug.py"
       ],
       "errors": [],
-      "wall_time_s": 0.96,
       "failed_tool_calls": 0
     },
     {
@@ -48,12 +46,12 @@
       "final_state": "COMPLETE",
       "steps": 7,
       "replans": 0,
+      "planner_errors": 0,
       "files_changed": [
         "orders/pricing.py",
         "orders/service.py"
       ],
       "errors": [],
-      "wall_time_s": 0.95,
       "failed_tool_calls": 0
     }
   ],

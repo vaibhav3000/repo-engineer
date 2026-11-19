@@ -69,7 +69,7 @@ class AgentState:
 
     task_id: str
     task_description: str
-    workspace: str
+    workspace: str  # workspace directory name
     state: State = State.INIT
     actions: list[dict[str, Any]] = field(default_factory=list)
     observations: list[dict[str, Any]] = field(default_factory=list)

@@ -54,7 +54,8 @@ class AgentRuntime:
         state = AgentState(
             task_id=task["task_id"],
             task_description=task.get("description", ""),
-            workspace=str(self.registry.workspace),
+            # The directory name only: absolute host paths stay out of traces.
+            workspace=self.registry.workspace.name,
         )
         usage_at_start = self.planner.usage()
         machine = StateMachine(state, max_steps=self.max_steps, max_replans=self.max_replans)
