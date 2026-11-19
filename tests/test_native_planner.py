@@ -162,3 +162,15 @@ def test_a_reply_without_a_tool_call_is_nudged_once_then_ends_planning(workspace
     nudge = adapter.sent[1][-1]
     assert isinstance(nudge, UserMessage) and FINISH_TOOL in nudge.text
     assert state.state is State.COMPLETE  # the untouched suite passes verification
+
+
+def test_old_tool_results_are_compacted_to_fit_the_budget(workspace: Path) -> None:
+    (workspace / "big.py").write_text("x = 1\n" * 2000, encoding="utf-8")
+    reads = [reply(call("read_file", {"path": "big.py"}, f"r{i}")) for i in range(8)]
+    adapter = ScriptedAdapter(*reads, reply(call(FINISH_TOOL, {}, "f")))
+    planner = NativeToolPlanner(adapter, context_budget_tokens=1500)
+    AgentRuntime(ToolRegistry(workspace), planner, max_replans=0).run_task(TASK)
+    final = results(adapter.sent[-1])
+    assert [r.call_id for r in final] == [f"r{i}" for i in range(8)]
+    assert final[0].content.startswith("[compacted:") and not final[-1].content.startswith("[")
+    assert planner.compactions > 0

@@ -24,6 +24,7 @@ from collections import deque
 from collections.abc import Sequence
 from typing import Any
 
+from .context import compact
 from .models import (
     Message,
     ModelAdapter,
@@ -58,6 +59,9 @@ SYSTEM_PROMPT = (
     "Every call is validated and may be rejected; read the error and adjust."
 )
 NUDGE = f"Reply with a tool call. When the task is complete, call {FINISH_TOOL}."
+# Estimated tokens (characters / 4) the conversation may use before old tool
+# results are compacted; well inside every supported model's context window.
+DEFAULT_CONTEXT_BUDGET_TOKENS = 100_000
 
 
 class NativeToolPlanner(Planner):
@@ -65,9 +69,17 @@ class NativeToolPlanner(Planner):
 
     name = "native"
 
-    def __init__(self, adapter: ModelAdapter, *, max_nudges: int = 1) -> None:
+    def __init__(
+        self,
+        adapter: ModelAdapter,
+        *,
+        max_nudges: int = 1,
+        context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
+    ) -> None:
         self.adapter = adapter
         self.max_nudges = max_nudges
+        self.context_budget_tokens = context_budget_tokens
+        self.compactions = 0  # tool results stubbed out to fit the budget, over all runs
         self.model = adapter.model
         self.calls = 0
         self.total_usage = Usage()
@@ -109,6 +121,8 @@ class NativeToolPlanner(Planner):
                 return self._hand_out(self._queue.popleft())
             if self._awaiting:
                 raise RuntimeError("the runtime did not report a result for every tool call")
+            self._messages, stubbed = compact(self._messages, self.context_budget_tokens)
+            self.compactions += stubbed
             reply = self.adapter.complete(SYSTEM_PROMPT, self._messages, self._tools)
             self.calls += 1
             self.total_usage = _add(self.total_usage, reply.usage)

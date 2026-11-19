@@ -66,8 +66,13 @@ class AgentRuntime:
         tree = self.registry.execute(ToolCall("list_tree", {}))
         state.observations.append({"tool": "list_tree", "ok": tree.ok})
         state.hypothesis = f"workspace has {len(tree.output_excerpt.splitlines())} entries"
-        # The planner sees the task together with the runtime's own listing.
+        # The planner sees the task together with the runtime's own listing
+        # and a map of the code (not traced: it is derived from the workspace).
         planner_task = {**task, "repo_tree": tree.output_excerpt}
+        try:
+            planner_task["repo_map"] = self.registry.repo_map_text()
+        except OSError as exc:
+            logger.warning("no repo map for the planner: %s", exc)
 
         history: list[dict[str, Any]] = []
         consecutive_planner_errors = 0
@@ -109,8 +114,7 @@ class AgentRuntime:
                 machine.transition(State.OBSERVE)
                 state.observations.append(_observation_dict(observation))
                 history.append(_history_entry(action.tool, action.args, observation))
-                if observation.ok and action.tool in ("apply_edit", "write_file"):
-                    changed = self.registry.workspace_relative(action.args["path"])
+                for changed in observation.files_written if observation.ok else ():
                     if changed not in state.files_changed:
                         state.files_changed.append(changed)
 

@@ -61,6 +61,7 @@ class Observation:
     rejected: bool = False  # True when validation/permissions blocked the call
     latency_ms: float = 0.0
     exit_code: int | None = None  # process exit status, for tools that run a command
+    files_written: tuple[str, ...] = ()  # workspace-relative paths a mutating tool changed
 
 
 @dataclass

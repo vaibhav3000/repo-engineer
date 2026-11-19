@@ -38,8 +38,10 @@ from pathlib import Path
 from typing import Any
 
 from .jail import JailViolation, path_components
+from .patch import PatchError, apply_file_patch, parse_patch
 from .process import child_env
 from .redaction import Redactor
+from .repo_map import SymbolIndex
 from .sandbox import JUnitSummary, LocalSandbox, PytestInvocation, Sandbox, SandboxRun
 from .schema import ToolSchema, validate_json_schema
 from .snapshot import RestoreError, WorkspaceSnapshot
@@ -150,6 +152,18 @@ class Verification:
     mutants_killed: int
     neutral_edits_total: int = 0
     neutral_edits_passed: int = 0
+
+
+@dataclass(frozen=True)
+class WriteResult:
+    """What a MUTATING tool returns: its message and the files it changed."""
+
+    text: str
+    files: tuple[str, ...]
+
+
+# Default size of the repo map a planner is shown, in characters.
+REPO_MAP_CHARS = 6000
 
 
 @dataclass(frozen=True)
@@ -391,6 +405,50 @@ class ToolRegistry:
         )
         self._register(
             ToolSpec(
+                name="apply_patch",
+                description=(
+                    "Apply a unified diff to one or more files, all or nothing. Hunks must "
+                    "match the files exactly (no fuzz); use dry_run to check first."
+                ),
+                permission=Permission.MUTATING,
+                required_args={"patch": str},
+                optional_args={"dry_run": bool},
+                max_chars={"patch": MAX_TEXT_CHARS},
+                arg_docs={
+                    "patch": (
+                        "Unified diff with '--- a/path' and '+++ b/path' headers and '@@' hunks; "
+                        "/dev/null creates or deletes a file."
+                    ),
+                    "dry_run": "Check that the whole patch applies without writing (default false).",
+                },
+                run=self._apply_patch,
+            )
+        )
+        self._register(
+            ToolSpec(
+                name="repo_map",
+                description="Outline of the repository's Python files and their symbols, most-used first.",
+                permission=Permission.READ_ONLY,
+                required_args={},
+                optional_args={"max_chars": int},
+                int_ranges={"max_chars": (500, 20_000)},
+                arg_docs={"max_chars": f"Size budget for the map (default {REPO_MAP_CHARS})."},
+                run=self._repo_map,
+            )
+        )
+        self._register(
+            ToolSpec(
+                name="find_symbol",
+                description="Definitions of a class, function or method and every place it is used.",
+                permission=Permission.READ_ONLY,
+                required_args={"name": str},
+                max_chars={"name": 200},
+                arg_docs={"name": "Plain or qualified name, for example total or Cart.add."},
+                run=self._find_symbol,
+            )
+        )
+        self._register(
+            ToolSpec(
                 name="git_diff",
                 description="Unified diff of workspace changes since the run started.",
                 permission=Permission.READ_ONLY,
@@ -467,6 +525,14 @@ class ToolRegistry:
 
         try:
             output = spec.run(**self._jail_arguments(spec, call.args))
+            if isinstance(output, WriteResult):
+                return Observation(
+                    tool=call.tool,
+                    ok=True,
+                    output_excerpt=self.redact(output.text)[:OUTPUT_LIMIT],
+                    latency_ms=(_time.perf_counter() - started) * 1000,
+                    files_written=output.files,
+                )
             if isinstance(output, CommandResult):
                 prefix = f"exit={output.exit_code}\n"
                 return Observation(
@@ -721,7 +787,7 @@ class ToolRegistry:
         numbered = [f"{i + 1:4d}: {lines[i]}" for i in range(start, end)]
         return "\n".join(numbered) or "(empty file)"
 
-    def _apply_edit(self, path: Path, old_text: str, new_text: str) -> str:
+    def _apply_edit(self, path: Path, old_text: str, new_text: str) -> WriteResult:
         shown = self._display(path)
         if not path.is_file():
             raise FileNotFoundError(f"not a file: {shown}")
@@ -737,9 +803,9 @@ class ToolRegistry:
         # Encode before opening: a failure must not leave a truncated file.
         data = _encode(text.replace(old_text, new_text, 1), newline)
         self._write_bytes(path, data, create=False)
-        return f"edited {shown}: 1 replacement"
+        return WriteResult(f"edited {shown}: 1 replacement", (shown,))
 
-    def _write_file(self, path: Path, content: str) -> str:
+    def _write_file(self, path: Path, content: str) -> WriteResult:
         shown = self._display(path)
         if path.exists():
             raise ValueError(f"write_file refuses to overwrite existing {shown}; use apply_edit")
@@ -747,7 +813,106 @@ class ToolRegistry:
         self._require_direct(path)  # before mkdir, which would follow a swapped-in link
         path.parent.mkdir(parents=True, exist_ok=True)
         self._write_bytes(path, data, create=True)
-        return f"created {shown} ({len(content)} chars)"
+        return WriteResult(f"created {shown} ({len(content)} chars)", (shown,))
+
+    def _apply_patch(self, patch: str, dry_run: bool = False) -> WriteResult:
+        """Apply a unified diff to every file it names, or to none of them.
+
+        Each target is jailed and write-checked like a declared path argument
+        (the paths live inside the patch text, so the tool does it itself).
+        New contents are computed in memory for every file first; only then
+        are files written, and a failed write rolls back the ones before it.
+        """
+        try:
+            file_patches = parse_patch(patch)
+        except PatchError as exc:
+            raise ValueError(f"apply_patch: {exc}") from exc
+        plans: list[tuple[Path, str, str | None, str | None, str]] = []
+        report: list[str] = []
+        for file_patch in file_patches:
+            target = self.jailed_path(file_patch.path)
+            rel = self._display(target)
+            self._check_writable(target)
+            if target.exists() and not target.is_file():
+                raise ValueError(f"apply_patch: {rel} is not a file")
+            original, newline = self._read_text(target) if target.exists() else (None, "\n")
+            try:
+                new_text, notes = apply_file_patch(original, file_patch)
+            except PatchError as exc:
+                raise ValueError(f"apply_patch: {exc}") from exc
+            plans.append((target, rel, original, new_text, newline))
+            added = sum(1 for h in file_patch.hunks for line in h.lines if line[:1] == "+")
+            removed = sum(1 for h in file_patch.hunks for line in h.lines if line[:1] == "-")
+            action = "create" if original is None else "delete" if new_text is None else "change"
+            report.append(
+                f"{action} {rel} (+{added} -{removed})" + "".join(f"; {n}" for n in notes)
+            )
+        if dry_run:
+            return WriteResult("dry run, nothing written; would " + "\nwould ".join(report), ())
+        self._write_plans(plans)
+        return WriteResult("applied: " + "; ".join(report), tuple(plan[1] for plan in plans))
+
+    def _write_plans(self, plans: list[tuple[Path, str, str | None, str | None, str]]) -> None:
+        """Write every planned file; on a failure put back the ones already written."""
+        undo: list[tuple[Path, bytes | None]] = []
+        try:
+            for target, _rel, original, new_text, newline in plans:
+                before = target.read_bytes() if original is not None else None
+                if new_text is None:
+                    self._require_direct(target)
+                    target.unlink()
+                elif original is None:
+                    self._require_direct(target)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    self._write_bytes(target, _encode(new_text, "\n"), create=True)
+                else:
+                    self._write_bytes(target, _encode(new_text, newline), create=False)
+                undo.append((target, before))
+        except (OSError, ValueError):
+            for target, before in reversed(undo):
+                if before is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    target.write_bytes(before)
+            raise
+
+    def _python_sources(self) -> dict[str, str]:
+        """Workspace-relative path -> text of the Python files a search would read."""
+        sources: dict[str, str] = {}
+        total = 0
+        for path in sorted(self._search_candidates("**/*.py")):
+            try:
+                if path.stat().st_size > MAX_SEARCH_FILE_BYTES:
+                    continue
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            total += len(text)
+            if total > MAX_SEARCH_TOTAL_BYTES:
+                break
+            sources[self._display(path)] = text
+        return sources
+
+    def repo_map_text(self, max_chars: int = REPO_MAP_CHARS) -> str:
+        """The repo map, as the repo_map tool returns it."""
+        return SymbolIndex.build(self._python_sources()).render_map(max_chars)
+
+    def _repo_map(self, max_chars: int = REPO_MAP_CHARS) -> str:
+        return self.repo_map_text(max_chars)
+
+    def _find_symbol(self, name: str) -> str:
+        definitions, references = SymbolIndex.build(self._python_sources()).find(name)
+        if not definitions:
+            lines = [f"no definition of {name!r} in the workspace's Python files"]
+        else:
+            lines = [
+                f"definition {d.path}:{d.line}-{d.end_line} {d.kind} {d.signature}"
+                for d in definitions
+            ]
+        lines += [f"reference {r.path}:{r.line}" for r in references[:100]]
+        if len(references) > 100:
+            lines.append(f"({len(references) - 100} more references)")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------- link-safe file access
 
