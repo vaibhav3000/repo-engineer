@@ -424,6 +424,10 @@ class ToolRegistry:
             raise ValueError(f"a tool named {spec.name!r} is already registered")
         self._register(spec)
 
+    def unregister(self, name: str) -> None:
+        """Remove a tool added with register()."""
+        self.specs.pop(name, None)
+
     def tool_schemas(self) -> list[ToolSchema]:
         """Every registered tool as a model sees it."""
         return [

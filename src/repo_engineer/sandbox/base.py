@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import shlex
 import xml.etree.ElementTree as ElementTree
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -66,14 +66,30 @@ class SandboxRun:
     report: JUnitSummary | None = None  # only when the invocation asked for one
 
 
+def _no_cleanup() -> None:
+    return None
+
+
+@dataclass(frozen=True)
+class StdioCommand:
+    """How to start a long-running stdio process (an external MCP server) in a sandbox."""
+
+    argv: tuple[str, ...]
+    env: dict[str, str]
+    cwd: Path
+    cleanup: Callable[[], None] = field(default=_no_cleanup, compare=False)
+
+
 class Sandbox(Protocol):
-    """Runs a checked pytest invocation against a workspace."""
+    """Runs a checked pytest invocation, or a stdio tool server, against a workspace."""
 
     name: str
 
     def run_pytest(
         self, workspace: Path, invocation: PytestInvocation, timeout_s: float
     ) -> SandboxRun: ...
+
+    def stdio_command(self, argv: Sequence[str], workspace: Path) -> StdioCommand: ...
 
 
 def pytest_options(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from repo_engineer.sandbox import (
     PytestInvocation,
     SandboxLimits,
     SandboxRun,
+    StdioCommand,
     select_sandbox,
 )
 from repo_engineer.state import ToolCall
@@ -40,6 +42,9 @@ class RecordingSandbox:
     ) -> SandboxRun:
         self.calls.append((workspace, invocation, timeout_s))
         return SandboxRun(exit_code=0, output="1 passed", timed_out=False, omitted_bytes=0)
+
+    def stdio_command(self, argv: Sequence[str], workspace: Path) -> StdioCommand:
+        return StdioCommand(argv=tuple(argv), env={}, cwd=workspace)
 
 
 def test_local_sandbox_runs_pytest_and_reads_the_junit_report(workspace: Path) -> None:

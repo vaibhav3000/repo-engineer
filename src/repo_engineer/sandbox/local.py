@@ -21,10 +21,18 @@ import os
 import shutil
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 from ..process import JobLimits, child_env, run_bounded
-from .base import PytestInvocation, SandboxLimits, SandboxRun, pytest_options, read_junit
+from .base import (
+    PytestInvocation,
+    SandboxLimits,
+    SandboxRun,
+    StdioCommand,
+    pytest_options,
+    read_junit,
+)
 
 LAUNCHER = Path(__file__).with_name("_launcher.py")
 # CPU seconds allowed beyond the wall-clock deadline before RLIMIT_CPU fires.
@@ -86,13 +94,27 @@ class LocalSandbox:
             report=report,
         )
 
-    def _with_limits(self, argv: list[str], timeout_s: float) -> list[str]:
+    def stdio_command(self, argv: Sequence[str], workspace: Path) -> StdioCommand:
+        """A long-running stdio server (an external MCP server) on the host.
+
+        It gets the allowlisted environment, the workspace as its working
+        directory and, on POSIX, the memory, file-size and open-file limits.
+        It is not isolated: it can reach the host filesystem and network, and
+        on Windows it runs outside any job object (a documented residual).
+        """
+        return StdioCommand(
+            argv=tuple(self._with_limits(list(argv), None)),
+            env=child_env(),
+            cwd=workspace,
+        )
+
+    def _with_limits(self, argv: list[str], timeout_s: float | None) -> list[str]:
         """On POSIX, prefix argv with the launcher that sets rlimits and execs it."""
         if sys.platform == "win32":
             return argv  # the job object carries the limits
         limits = {
             "memory_mb": self.limits.memory_mb,
-            "cpu_seconds": math.ceil(timeout_s) + CPU_GRACE_S,
+            "cpu_seconds": 0 if timeout_s is None else math.ceil(timeout_s) + CPU_GRACE_S,
             "file_size_mb": self.limits.file_size_mb,
             "nofile": self.limits.nofile,
         }

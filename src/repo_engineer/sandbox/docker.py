@@ -40,6 +40,7 @@ from .base import (
     SandboxError,
     SandboxLimits,
     SandboxRun,
+    StdioCommand,
     parse_junit,
     pytest_options,
 )
@@ -272,16 +273,30 @@ class DockerSandbox:
         timeout_s: float = 120.0,
     ) -> list[str]:
         """The full docker command for one invocation."""
-        limits = self.limits
         extra = ["--basetemp=/tmp/pytest"]
         if invocation.junit:
             extra.append(f"--junitxml={REPORT_PATH}")
+        return [
+            *self.docker_cmd,
+            "run",
+            *self.container_flags(workspace, name),
+            self.image,
+            "python",
+            "-I",
+            "-c",
+            WRAPPER,
+            nonce,
+            f"{timeout_s:g}",
+            *pytest_options(invocation, root=WORKDIR, devnull="/dev/null", extra=tuple(extra)),
+        ]
+
+    def container_flags(self, workspace: Path, name: str) -> list[str]:
+        """The isolation every sandbox container gets, whatever it runs."""
+        limits = self.limits
         env: list[str] = []
         for key, value in CONTAINER_ENV.items():
             env += ["-e", f"{key}={value}"]
         return [
-            *self.docker_cmd,
-            "run",
             "--rm",
             "--init",
             "--name",
@@ -314,15 +329,32 @@ class DockerSandbox:
             "-w",
             WORKDIR,
             *env,
-            self.image,
-            "python",
-            "-I",
-            "-c",
-            WRAPPER,
-            nonce,
-            f"{timeout_s:g}",
-            *pytest_options(invocation, root=WORKDIR, devnull="/dev/null", extra=tuple(extra)),
         ]
+
+    def stdio_command(self, argv: Sequence[str], workspace: Path) -> StdioCommand:
+        """A long-running stdio server (an external MCP server) in a sandbox container.
+
+        It gets the same isolation as a test run: no network, the workspace
+        read-only, nothing from the host environment. The container is
+        removed when the server's stdin closes, and cleanup() removes it in
+        any case.
+        """
+        self.ensure_image()
+        name = f"repo-engineer-sbx-{secrets.token_hex(6)}"
+        command = [
+            *self.docker_cmd,
+            "run",
+            "-i",
+            *self.container_flags(workspace, name),
+            self.image,
+            *argv,
+        ]
+        return StdioCommand(
+            argv=tuple(command),
+            env=dict(os.environ),  # for the docker CLI only
+            cwd=workspace,
+            cleanup=lambda: self._remove(name),
+        )
 
     def run_pytest(
         self, workspace: Path, invocation: PytestInvocation, timeout_s: float
