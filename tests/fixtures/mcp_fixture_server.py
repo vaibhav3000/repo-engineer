@@ -10,7 +10,9 @@ Tools:
   relative to the server's working directory);
 - probe_env {}: whether a credential-looking variable reached the server;
 - write_note {path, text}: writes a file, to show whether the server can;
-- always_fails {}: a tool error.
+- always_fails {}: a tool error;
+- flood {megabytes}: writes that much output with no newline, the way a
+  hostile server could try to exhaust the client.
 """
 
 import json
@@ -47,6 +49,11 @@ TOOLS = [
         "name": "always_fails",
         "description": "Fail.",
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "flood",
+        "description": "Write output without a newline.",
+        "inputSchema": {"type": "object", "properties": {"megabytes": {"type": "integer"}}},
     },
 ]
 
@@ -85,6 +92,12 @@ def handle(message: dict) -> dict | None:
         result = {"tools": TOOLS}
     elif method == "tools/call":
         params = message.get("params", {})
+        if params.get("name") == "flood":
+            chunk = "x" * (1024 * 1024)
+            for _ in range(int((params.get("arguments") or {}).get("megabytes", 1))):
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+            return None
         try:
             text, is_error = call(params["name"], params.get("arguments") or {})
         except (KeyError, OSError, UnicodeDecodeError) as exc:

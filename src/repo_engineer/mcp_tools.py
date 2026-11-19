@@ -25,6 +25,7 @@ import asyncio
 import json
 import logging
 import re
+import sys
 import threading
 from collections.abc import Sequence
 from concurrent.futures import Future
@@ -37,6 +38,10 @@ from .sandbox import StdioCommand
 from .tools import Permission, ToolRegistry, ToolSpec
 
 logger = logging.getLogger(__name__)
+
+RELAY = Path(__file__).with_name("_stdio_relay.py")
+# The largest single message (one line of output) an external server may send.
+MAX_MESSAGE_BYTES = 4 * 1024 * 1024
 
 TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 START_TIMEOUT_S = 120.0
@@ -69,9 +74,11 @@ class _Connection:
         from mcp import Client, StdioServerParameters
 
         self.stop = asyncio.Event()
+        # The relay stops a server whose message grows past the limit, so the
+        # client's read buffer on the host stays bounded.
         params = StdioServerParameters(
-            command=self.command.argv[0],
-            args=list(self.command.argv[1:]),
+            command=sys.executable,
+            args=["-I", "-S", str(RELAY), str(MAX_MESSAGE_BYTES), "--", *self.command.argv],
             env=self.command.env,
             cwd=str(self.command.cwd),
         )

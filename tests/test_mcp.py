@@ -190,3 +190,20 @@ def test_local_external_servers_can_write_the_workspace(workspace: Path) -> None
     with ExternalTools(registry, [server]):
         obs = registry.execute(ToolCall("mcp__fx__write_note", {"path": "note.txt", "text": "x"}))
     assert obs.ok and (workspace / "note.txt").exists()
+
+
+def test_a_flooding_external_server_is_cut_off(workspace: Path) -> None:
+    """Found by the Step 2 review: output with no newline was buffered on the
+    host without a cap; the relay now stops a server whose message grows past
+    the limit."""
+    import time
+
+    registry, server = mounted(
+        workspace, LocalSandbox(), [sys.executable, "fixture_server.py"], timeout_s=60.0
+    )
+    with ExternalTools(registry, [server]):
+        started = time.monotonic()
+        obs = registry.execute(ToolCall("mcp__fx__flood", {"megabytes": 64}))
+        assert not obs.ok and time.monotonic() - started < 45
+        later = registry.execute(ToolCall("mcp__fx__probe_env", {}))
+        assert not later.ok  # the server was stopped
