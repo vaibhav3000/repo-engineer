@@ -27,7 +27,7 @@ from .agent import AgentRuntime, prepare_workspace
 from .models import PROVIDERS, ConfigurationError, create_adapter
 from .planner import ConfigurationError as PlannerConfigurationError
 from .planner import LLMPlanner, Planner
-from .sandbox import SANDBOX_MODES, DockerSandbox, SandboxError, select_sandbox
+from .sandbox import SANDBOX_MODES, DockerSandbox, Sandbox, SandboxError, select_sandbox
 from .state import ToolCall
 from .tools import Permission, Policy, ToolRegistry
 from .trace import PriceTable, TraceWriter
@@ -110,6 +110,16 @@ def _model_options(parser: argparse.ArgumentParser) -> None:
 
 def _sandbox_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sandbox", choices=SANDBOX_MODES, default="auto")
+    parser.add_argument(
+        "--sandbox-image",
+        default=None,
+        help="Docker image for test runs, for repositories whose tests need more than pytest",
+    )
+
+
+def sandbox_from(args: argparse.Namespace) -> Sandbox:
+    """The sandbox the command-line options ask for."""
+    return select_sandbox(args.sandbox, image=args.sandbox_image)
 
 
 # ------------------------------------------------------------- run
@@ -124,7 +134,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     if hasattr(planner, "prices"):
         planner.prices = prices  # type: ignore[attr-defined]
     servers = _mcp_servers(args.mcp_config) if args.mcp_config else []
-    sandbox = select_sandbox(args.sandbox)
+    sandbox = sandbox_from(args)
     out: Path = args.out.resolve()
     workspace = prepare_workspace(repo, out, _name(repo.name))
     run_id = workspace.name
@@ -218,7 +228,7 @@ def _name(raw: str) -> str:
 def cmd_replay(args: argparse.Namespace) -> int:
     from .replay import replay
 
-    report = replay(args.trace, repo=args.repo, sandbox=select_sandbox(args.sandbox))
+    report = replay(args.trace, repo=args.repo, sandbox=sandbox_from(args))
     if report.reproduced:
         print(f"reproduced: {report.compared} events match; final state {report.final_state}")
         return 0
@@ -230,14 +240,14 @@ def cmd_mcp_serve(args: argparse.Namespace) -> int:
     from .mcp_server import serve_stdio
 
     policy = {PERMISSION_NAMES[name]: Policy.DENY for name in args.deny}
-    registry = ToolRegistry(args.workspace, policy=policy, sandbox=select_sandbox(args.sandbox))
+    registry = ToolRegistry(args.workspace, policy=policy, sandbox=sandbox_from(args))
     registry.protect(args.protect)
     serve_stdio(registry)
     return 0
 
 
 def cmd_bench(args: argparse.Namespace) -> int:
-    sandbox = select_sandbox(args.sandbox)
+    sandbox = sandbox_from(args)
     if not args.live:
         from .benchmark.harness import main as scripted
 

@@ -163,3 +163,16 @@ def test_a_live_bench_without_credentials_stops_cleanly(
     code = cli.main(["bench", "--live", "--model", "m", "--results", str(tmp_path)])
     assert code == 2 and "GEMINI_API_KEY" in capsys.readouterr().err
     assert not (tmp_path / "llm_runs").exists()
+
+
+def test_a_custom_sandbox_image_reaches_the_docker_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from repo_engineer.sandbox import DockerSandbox
+
+    monkeypatch.setattr(DockerSandbox, "available", lambda self: True)
+    args = cli.build_parser().parse_args(
+        ["replay", "t.jsonl", "--sandbox", "docker", "--sandbox-image", "team/tests:1"]
+    )
+    sandbox = cli.sandbox_from(args)
+    assert isinstance(sandbox, DockerSandbox) and sandbox.image == "team/tests:1"
