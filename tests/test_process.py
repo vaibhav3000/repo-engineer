@@ -73,8 +73,9 @@ def _pid_alive(pid: int) -> bool:
 
 # A detached Windows child (new process group, no console) is still inside the
 # runtime's job object and must die with it. On POSIX a child that starts its
-# own session leaves the process group, so only the Step 2 sandbox can contain
-# it; that case is documented as a residual rather than tested here.
+# own session leaves the process group, and on Windows a process created
+# through a service such as WMI is not a descendant at all, so only the Step 2
+# sandbox can contain those; they are documented as residuals, not tested here.
 DETACH_CASES = [False, True] if os.name == "nt" else [False]
 
 

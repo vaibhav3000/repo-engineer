@@ -94,8 +94,13 @@ sys.executable -P -m pytest -p no:cacheprovider -c <workspace config or os.devnu
     <checked flags and paths>
 ```
 
+Test paths reach pytest as `./<path>`, so a file named like an option or an
+argument file (`--co`, `@args`) is never read as one. Every run also gets
+per-run scratch space outside the workspace: a fresh `PYTHONPYCACHEPREFIX`
+(bytecode planted in the workspace is never read) and pytest's `--basetemp`.
 The child gets an environment allowlist (PATH, temp and home directories,
-locale and a few fixed settings; no API keys, no PYTHONPATH, no PYTEST_ADDOPTS),
+locale and a few fixed settings; no API keys, no user-name variables, no
+PYTHONPATH, no PYTEST_ADDOPTS),
 a deadline after which the whole process tree is killed (a job object on
 Windows, the process group on POSIX), and a bounded output buffer. The code
 the tests execute still runs as the host user; only an OS sandbox can change
@@ -106,13 +111,22 @@ that.
 `COMPLETE` is reachable only from `VERIFY`. In VERIFY the runtime:
 
 1. restores the task's protected paths and every pytest control file from the
-   starting snapshot, deletes control files and links created during the run;
+   starting snapshot whatever their size, and deletes control files, links and
+   `__pycache__` directories created during the run;
 2. runs the task's `verify_cmd` with a JUnit report written outside the
    workspace;
 3. passes only when the exit status is 0 and the report shows at least one
    passing test and no failures or errors;
 4. for tasks that declare `mutants`, applies each one to its pristine file,
-   re-runs the suite and requires it to fail, then restores the file.
+   re-runs the suite and requires it to fail;
+5. for tasks that declare `neutral_edits`, applies each behaviour-preserving
+   edit the same way and requires the suite to still pass, which rejects
+   tests that only pin the source text.
+
+Before and after every mutant or neutral-edit run the restore step runs
+again, so nothing planted by test code in one run steers the next. A failure
+inside verification (a file that cannot be restored, say) ends the run as a
+failed verification rather than crashing it.
 
 A planner claiming success changes nothing. A failed verification goes to
 REPLAN with the reason and the end of the test output, until the replan

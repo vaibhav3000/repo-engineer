@@ -149,7 +149,9 @@ window.DATA = {
      "exit_code": 0,
      "restored": [],
      "mutants_total": 0,
-     "mutants_killed": 0
+     "mutants_killed": 0,
+     "neutral_edits_total": 0,
+     "neutral_edits_passed": 0
     }
    ],
    "actions": [
@@ -267,7 +269,9 @@ window.DATA = {
      "exit_code": 0,
      "restored": [],
      "mutants_total": 0,
-     "mutants_killed": 0
+     "mutants_killed": 0,
+     "neutral_edits_total": 0,
+     "neutral_edits_passed": 0
     }
    ],
    "actions": [
@@ -380,7 +384,9 @@ window.DATA = {
      "exit_code": 0,
      "restored": [],
      "mutants_total": 3,
-     "mutants_killed": 3
+     "mutants_killed": 3,
+     "neutral_edits_total": 2,
+     "neutral_edits_passed": 2
     }
    ],
    "actions": [
@@ -493,7 +499,9 @@ window.DATA = {
      "exit_code": 0,
      "restored": [],
      "mutants_total": 0,
-     "mutants_killed": 0
+     "mutants_killed": 0,
+     "neutral_edits_total": 0,
+     "neutral_edits_passed": 0
     }
    ],
    "actions": [
@@ -624,9 +632,9 @@ window.DATA = {
  "attacks": {
   "generator": "scripts/run_jail_attacks.py",
   "summary": {
-   "total": 36,
+   "total": 39,
    "rejected": 29,
-   "contained": 6,
+   "contained": 9,
    "residual": 1,
    "breached": 0
   },
@@ -1136,6 +1144,52 @@ window.DATA = {
    },
    {
     "id": "A36",
+    "category": "test command",
+    "description": "workspace file named like an argument file (./@argfile)",
+    "tool": "run_tests",
+    "args": {
+     "cmd": "python -m pytest ./@argfile"
+    },
+    "ok": true,
+    "rejected": false,
+    "error": null,
+    "outcome": "contained",
+    "evidence": {
+     "file_written_outside_workspace": false
+    }
+   },
+   {
+    "id": "A37",
+    "category": "malformed call",
+    "description": "regex that overflows the compiler",
+    "tool": "search",
+    "args": {
+     "pattern": "a{4294967295}"
+    },
+    "ok": false,
+    "rejected": false,
+    "error": "invalid regex: OverflowError: the repetition number is too large",
+    "outcome": "contained"
+   },
+   {
+    "id": "A38",
+    "category": "resource",
+    "description": "nested ** globs over a deep directory tree",
+    "tool": "search",
+    "args": {
+     "pattern": "x",
+     "glob": "**/a/**/a/**/a/**/a/**/a/**/a/zzz"
+    },
+    "ok": true,
+    "rejected": false,
+    "error": null,
+    "outcome": "contained",
+    "evidence": {
+     "took_longer_than_10s": false
+    }
+   },
+   {
+    "id": "A39",
     "category": "residual",
     "description": "agent-written test code writes outside the workspace",
     "tool": "run_tests",

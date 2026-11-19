@@ -159,9 +159,13 @@ class _ProcessGroup:
     group. A descendant that calls setsid() itself leaves the group; only an
     OS sandbox can contain that.
     Windows: the child starts suspended, joins a job object that kills every
-    member when terminated, and only then resumes, so detached descendants
-    stay in the job too. If the job cannot be created, kill() falls back to
-    `taskkill /T`, which only reaches descendants whose parent is still alive.
+    member when terminated, and only then resumes, so every process it
+    starts, detached or not, stays in the job. A process created on its
+    behalf by another service (WMI's Win32_Process.Create, for example) is
+    not its descendant and escapes, like a POSIX process that calls setsid;
+    only an OS sandbox can contain those. If the job cannot be created,
+    kill() falls back to `taskkill /T`, which only reaches descendants whose
+    parent is still alive.
     """
 
     def __init__(self) -> None:

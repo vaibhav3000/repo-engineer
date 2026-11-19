@@ -34,7 +34,7 @@ violation, unknown argument, wrong type, out-of-range value, oversized string)
 that is recorded in the trace and fed back to the planner as history. The
 runtime never crashes on planner output. The scripted benchmark shows zero
 failed tool calls because its recipes are valid; the rejection paths are
-exercised by the tests and by the 36 recorded adversarial calls.
+exercised by the tests and by the 39 recorded adversarial calls.
 
 **How do you prevent arbitrary shell execution?**
 There is no shell tool. `run_tests` is the only EXECUTION tool, and it does
@@ -83,16 +83,21 @@ permission class; ASK and DENY have to be configured.
 **What if the planner claims the bug is fixed but tests still fail?**
 Its claim is irrelevant. In VERIFY the runtime restores the files the task
 protects (the existing tests, for a bug fix) and every pytest control file,
-then runs the suite itself. It accepts the run only if the exit status is 0
-and pytest's JUnit report, written outside the workspace, shows at least one
-passing test and no failures. A failing verification goes to REPLAN; after the
+then runs the suite itself, with a fresh bytecode cache so that bytecode
+planted in the workspace is never read. It accepts the run only if the exit
+status is 0 and pytest's JUnit report, written outside the workspace, shows
+at least one passing test and no failures. A failing verification goes to REPLAN; after the
 replan budget, FAILED. A planner-issued test run that fails with no replans
 left ends OBSERVE -> REPLAN -> FAILED.
 
 **Could the agent write a trivial test to finish the add-a-test task?**
-No. For that task the code under test is protected and the runtime applies
-three seeded mutants to it during VERIFY; each one must make the new tests
-fail. A test such as `assert True` catches none of them, so the run fails.
+Not a trivial one. For that task the code under test is protected and the
+runtime applies three seeded mutants to it during VERIFY; each one must make
+the new tests fail, so `assert True` fails. It also applies two
+behaviour-preserving edits, which must leave the tests passing, so a test
+that only pins the file's hash fails too. A test written to inspect the
+source text for specific tokens could still pass both checks; that takes
+deliberate gaming and is a documented residual.
 
 **What if the model repeatedly edits the wrong file?**
 The trace records every proposed edit, and `files_changed` lists the files
