@@ -119,8 +119,9 @@ the audit trace.
   directory for a link (the D10 race), filling the workspace with a huge tree
   to stall later walks. Writes the agent makes go through the registry's own
   tools, which run on the host under the jail.
-- **No writable host mount.** The only writable place is a size-limited
-  tmpfs, so test code cannot fill the host's disk. The JUnit report is
+- **No writable host mount.** The only writable places are size-limited
+  tmpfs mounts (`/tmp`, plus the 64 MiB `/dev/shm` Docker always provides),
+  which live in memory, so test code cannot fill the host's disk. The JUnit report is
   written there, and a short runtime-supplied wrapper prints it after pytest
   exits, behind a per-run random marker; the host takes the report from the
   end of the output. A report larger than 512 KiB counts as missing, which
@@ -225,7 +226,10 @@ tools are listed once, and each becomes a `ToolSpec` named
 - argument validation against the tool's own input schema (a small validator
   for the JSON Schema subset MCP tools use, so no new dependency);
 - the jail on any arguments the configuration declares as paths;
-- the normal policy gate, observation, redaction and trace.
+- the normal policy gate, observation, redaction and trace;
+- a small relay on the server's stdout that stops the server once a single
+  message passes 4 MiB without a newline, because the MCP client buffers
+  each line on the host without a limit.
 
 ## 3. Repo intelligence and patching
 
