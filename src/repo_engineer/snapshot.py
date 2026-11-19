@@ -203,10 +203,9 @@ class WorkspaceSnapshot:
             existed, exists = rel in self.tree_paths, rel in now_paths
             unread = (existed and before is None) or (exists and after is None)
             if unread:
-                if existed and exists and before is None and after is None:
-                    if self.stats.get(rel) == _stat(self.root / rel):
-                        continue
-                not_compared.append(rel)
+                unread_both = existed and exists and before is None and after is None
+                if not (unread_both and self.stats.get(rel) == _stat(self.root / rel)):
+                    not_compared.append(rel)
                 continue
             if before == after:
                 continue
