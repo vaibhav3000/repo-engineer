@@ -1,8 +1,8 @@
 """Minimal OpenAI-compatible chat client (stdlib only).
 
-Deliberately near-identical to aire's src/aire/llm/provider.py: both projects
-stay zero-dependency standalone repos, so the small client is duplicated and
-kept in sync by hand rather than extracted into a shared package.
+It started as a copy of aire's src/aire/llm/provider.py: both projects stay
+standalone repos, so the small client is duplicated rather than extracted into
+a shared package, and fixes are ported between them by hand.
 
 One provider class covers Gemini's OpenAI-compatible endpoint and any other
 OpenAI-style API. The API key is read from an environment variable at call
@@ -33,6 +33,11 @@ class ProviderError(RuntimeError):
     pass
 
 
+# Status codes worth retrying: rate limits and transient server errors. Anything
+# else (400, 401, 403, 404, ...) fails the same way every time.
+RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
 class OpenAICompatProvider:
     """Chat-completions client for OpenAI-compatible endpoints."""
 
@@ -44,6 +49,7 @@ class OpenAICompatProvider:
         temperature: float = 0.0,
         timeout_s: float = 90.0,
         max_tokens: int = 2048,
+        backoff_s: float = 4.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key_env = api_key_env
@@ -51,6 +57,7 @@ class OpenAICompatProvider:
         self.temperature = temperature
         self.timeout_s = timeout_s
         self.max_tokens = max_tokens
+        self.backoff_s = backoff_s
 
     def _key(self) -> str:
         key = os.environ.get(self.api_key_env, "").strip()
@@ -73,7 +80,6 @@ class OpenAICompatProvider:
                 "max_tokens": self.max_tokens,
             }
         ).encode("utf-8")
-        last_error: Exception | None = None
         for attempt in range(retries + 1):
             req = urllib.request.Request(
                 f"{self.base_url}/chat/completions",
@@ -98,29 +104,45 @@ class OpenAICompatProvider:
                 )
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace")[:300]
-                last_error = ProviderError(f"HTTP {exc.code}: {detail}")
-                if exc.code in (429, 500, 502, 503) and attempt < retries:
-                    time.sleep(4.0 * (attempt + 1))  # rate-limit backoff
-                    continue
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError) as exc:
-                last_error = ProviderError(f"{type(exc).__name__}: {exc}")
-                if attempt < retries:
-                    time.sleep(2.0)
-                    continue
-        raise last_error if last_error else ProviderError("request failed")
+                error = ProviderError(f"HTTP {exc.code}: {detail}")
+                if exc.code not in RETRYABLE_STATUS or attempt == retries:
+                    raise error from exc
+                time.sleep(self.backoff_s * (attempt + 1))  # rate-limit backoff
+            except (urllib.error.URLError, TimeoutError) as exc:
+                error = ProviderError(f"{type(exc).__name__}: {exc}")
+                if attempt == retries:
+                    raise error from exc
+                time.sleep(self.backoff_s / 2)
+            except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as exc:
+                # A malformed success body will not improve on retry.
+                raise ProviderError(
+                    f"malformed provider reply: {type(exc).__name__}: {exc}"
+                ) from exc
+        raise ProviderError("request failed")
 
     def chat_json(self, system: str, user: str) -> tuple[dict[str, Any], LLMResponse]:
-        """Chat and parse the reply as a JSON object (tolerates code fences)."""
+        """Chat and return the first JSON object in the reply."""
         resp = self.chat(system, user)
-        text = resp.content.strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.startswith("json"):
-                text = text[4:]
-        start, end = text.find("{"), text.rfind("}")
-        if start == -1 or end == -1:
-            raise ProviderError(f"reply is not JSON: {resp.content[:200]!r}")
+        data = first_json_object(resp.content)
+        if data is None:
+            raise ProviderError(f"reply contains no JSON object: {resp.content[:200]!r}")
+        return data, resp
+
+
+def first_json_object(text: str) -> dict[str, Any] | None:
+    """The first complete JSON object in text, skipping prose and code fences.
+
+    Each '{' is tried in turn with JSONDecoder.raw_decode, so braces in the
+    surrounding prose do not break parsing and trailing text is ignored.
+    """
+    decoder = json.JSONDecoder()
+    start = text.find("{")
+    while start != -1:
         try:
-            return json.loads(text[start : end + 1]), resp
-        except json.JSONDecodeError as exc:
-            raise ProviderError(f"invalid JSON in reply: {exc}: {resp.content[:200]!r}") from exc
+            value, _ = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            value = None
+        if isinstance(value, dict):
+            return value
+        start = text.find("{", start + 1)
+    return None

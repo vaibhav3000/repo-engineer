@@ -193,7 +193,8 @@ class LLMPlanner(Planner):
         self.calls += 1
         self.total_prompt_tokens += resp.prompt_tokens
         self.total_completion_tokens += resp.completion_tokens
-        if data.get("done"):
+        # Only a literal JSON true ends the run; "false" or "yes" do not.
+        if data.get("done") is True:
             return None
         tool = data.get("tool")
         args = data.get("args", {})
