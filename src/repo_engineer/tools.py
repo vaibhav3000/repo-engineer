@@ -21,6 +21,8 @@ and network access. Only an OS-level sandbox (planned) can contain it.
 from __future__ import annotations
 
 import configparser
+import fnmatch
+import functools
 import json
 import os
 import re
@@ -619,19 +621,28 @@ class ToolRegistry:
     def _search_candidates(self, glob: str) -> list[Path]:
         """Regular files matching glob that are really inside the workspace.
 
-        Matches reached through a link or junction, and anything under .git,
-        are skipped. Examining stops after MAX_SEARCH_CANDIDATES paths so a
-        link to a huge tree cannot stall the runtime.
+        One walk of the tree, never into links, junctions or .git, matched
+        with a polynomial-time glob matcher (Path.glob is exponential in the
+        number of '**' segments on deep trees). The walk stops after
+        MAX_SEARCH_CANDIDATES entries.
         """
+        pattern = glob.split("/")
         files: list[Path] = []
-        for examined, path in enumerate(self.workspace.glob(glob), 1):
+        examined = 0
+        for directory, dirnames, filenames in os.walk(self.workspace, followlinks=False):
+            dirnames[:] = sorted(
+                name
+                for name in dirnames
+                if name.lower() != ".git" and self._is_direct(Path(directory, name))
+            )
+            examined += 1 + len(filenames)
             if examined > MAX_SEARCH_CANDIDATES:
                 break
-            rel_parts = path.relative_to(self.workspace).parts
-            if any(part.lower() == ".git" for part in rel_parts):
-                continue
-            if path.is_file() and self._is_direct(path):
-                files.append(path)
+            for name in filenames:
+                path = Path(directory, name)
+                parts = path.relative_to(self.workspace).parts
+                if glob_match(pattern, parts) and path.is_file() and self._is_direct(path):
+                    files.append(path)
         return files
 
     def _read_file(
@@ -997,6 +1008,29 @@ class ToolRegistry:
         """Workspace-relative POSIX form of a jailed path ('.' for the root)."""
         rel = path.relative_to(self.workspace).as_posix()
         return rel if rel else "."
+
+
+def glob_match(pattern: Sequence[str], parts: Sequence[str]) -> bool:
+    """Whether path components match glob components ('**' spans any depth).
+
+    Dynamic programming over (pattern index, path index), so the cost is at
+    most len(pattern) * len(parts) name comparisons. Names compare
+    case-insensitively on Windows, as the filesystem does.
+    """
+
+    @functools.cache
+    def match(i: int, j: int) -> bool:
+        if i == len(pattern):
+            return j == len(parts)
+        if pattern[i] == "**":
+            return match(i + 1, j) or (j < len(parts) and match(i, j + 1))
+        return (
+            j < len(parts)
+            and fnmatch.fnmatchcase(os.path.normcase(parts[j]), os.path.normcase(pattern[i]))
+            and match(i + 1, j + 1)
+        )
+
+    return match(0, 0)
 
 
 def _split_command(cmd: str) -> list[str]:

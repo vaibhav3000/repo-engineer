@@ -98,3 +98,33 @@ def test_an_unexpected_tool_exception_becomes_an_observation(workspace: Path) ->
     obs = reg.execute(ToolCall("explode", {}))
     assert not obs.ok and not obs.rejected
     assert "KeyError" in error_text(obs)
+
+
+def test_nested_double_star_globs_stay_fast(workspace: Path) -> None:
+    deep = workspace.joinpath(*(["a"] * 40))
+    deep.mkdir(parents=True)
+    (deep / "x.txt").write_text("needle\n", encoding="utf-8")
+    reg = ToolRegistry(workspace)
+    started = time.monotonic()
+    obs = reg.execute(ToolCall("search", {"pattern": "needle", "glob": "**/a/" * 4 + "zzz"}))
+    assert time.monotonic() - started < 5
+    assert obs.ok and obs.output_excerpt == "(no matches)"
+    found = reg.execute(ToolCall("search", {"pattern": "needle", "glob": "**/a/**/x.txt"}))
+    assert "a/a/" in found.output_excerpt and found.output_excerpt.endswith("x.txt:1:needle")
+
+
+@pytest.mark.parametrize(
+    ("glob", "expected"),
+    [
+        ("**/*.py", ["app.py", "tests/test_app.py"]),
+        ("*.py", ["app.py"]),
+        ("tests/*", ["tests/test_app.py"]),
+        ("tests/**", ["tests/test_app.py"]),
+        ("**", ["app.py", "tests/test_app.py"]),
+        ("t?sts/test_[a-z]*.py", ["tests/test_app.py"]),
+    ],
+)
+def test_glob_semantics(workspace: Path, glob: str, expected: list[str]) -> None:
+    obs = ToolRegistry(workspace).execute(ToolCall("search", {"pattern": ".", "glob": glob}))
+    found = sorted({line.split(":", 1)[0] for line in obs.output_excerpt.splitlines()})
+    assert found == expected
