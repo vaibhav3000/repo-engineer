@@ -14,7 +14,14 @@ license-files = ["LICENSE"]
 dependencies = ["pytest>=9.2"]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.2", "ruff==0.17.5", "pyright==1.1.414"]
+# Model providers for the native tool-calling planner, and MCP. Each is
+# optional and imported only when used.
+openai = ["openai>=3.54"]  # also covers local OpenAI-compatible servers
+anthropic = ["anthropic>=2.10"]
+gemini = ["google-genai>=3.4"]
+mcp = ["mcp>=2.3"]
+all = ["repo-engineer[openai,anthropic,gemini,mcp]"]
+dev = ["repo-engineer[all]", "pytest>=9.2", "ruff==0.17.5", "pyright==1.1.414"]
 
 [tool.setuptools.dynamic]
 version = { attr = "repo_engineer.__version__" }

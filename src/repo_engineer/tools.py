@@ -41,6 +41,7 @@ from .jail import JailViolation, path_components
 from .process import child_env
 from .redaction import Redactor
 from .sandbox import JUnitSummary, LocalSandbox, PytestInvocation, Sandbox, SandboxRun
+from .schema import ToolSchema, validate_json_schema
 from .snapshot import RestoreError, WorkspaceSnapshot
 from .state import Observation, ToolCall
 
@@ -184,11 +185,40 @@ class ToolSpec:
     # Inclusive bounds for integer arguments and length caps for strings.
     int_ranges: dict[str, tuple[int, int]] = field(default_factory=dict)
     max_chars: dict[str, int] = field(default_factory=dict)
+    # One line per argument, shown to models in the tool's JSON Schema.
+    arg_docs: dict[str, str] = field(default_factory=dict)
+    # A tool that brings its own JSON Schema (an external MCP tool) is
+    # validated against it instead of the typed fields above.
+    schema: dict[str, Any] | None = None
+
+    def json_schema(self) -> dict[str, Any]:
+        """The JSON Schema for this tool's arguments, as published to models."""
+        if self.schema is not None:
+            return self.schema
+        properties: dict[str, Any] = {}
+        for name, kind in {**self.required_args, **self.optional_args}.items():
+            prop: dict[str, Any] = {"type": _JSON_TYPES[kind]}
+            if name in self.int_ranges:
+                prop["minimum"], prop["maximum"] = self.int_ranges[name]
+            if name in self.max_chars:
+                prop["maxLength"] = self.max_chars[name]
+            if name in self.arg_docs:
+                prop["description"] = self.arg_docs[name]
+            properties[name] = prop
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": list(self.required_args),
+            "additionalProperties": False,
+        }
 
     def validate(self, args: dict[str, Any]) -> str | None:
         """Return an error string when args violate the schema; None when valid."""
         if not isinstance(args, dict):
             return f"{self.name}: args must be an object, got {type(args).__name__}"
+        if self.schema is not None:
+            error = validate_json_schema(args, self.schema)
+            return f"{self.name}: {error}" if error else None
         for key, expected in self.required_args.items():
             if key not in args:
                 return f"{self.name}: missing required argument '{key}'"
@@ -213,6 +243,9 @@ class ToolSpec:
             if key in args and len(args[key]) > limit:
                 return f"{self.name}: argument '{key}' is longer than {limit} characters"
         return None
+
+
+_JSON_TYPES: dict[type, str] = {str: "string", int: "integer", bool: "boolean", float: "number"}
 
 
 def _is_instance(value: Any, expected: type) -> bool:
@@ -287,6 +320,7 @@ class ToolRegistry:
                 permission=Permission.READ_ONLY,
                 required_args={},
                 optional_args={"max_depth": int},
+                arg_docs={"max_depth": "How many directory levels to list (default 3)."},
                 int_ranges={"max_depth": (1, 6)},
                 run=self._list_tree,
             )
@@ -299,6 +333,10 @@ class ToolRegistry:
                 required_args={"pattern": str},
                 optional_args={"glob": str},
                 glob_args=("glob",),
+                arg_docs={
+                    "pattern": "Case-insensitive Python regular expression, matched per line.",
+                    "glob": "Workspace-relative glob of files to search (default **/*.py).",
+                },
                 max_chars={"pattern": MAX_PATTERN_CHARS},
                 run=self._search,
             )
@@ -310,6 +348,11 @@ class ToolRegistry:
                 permission=Permission.READ_ONLY,
                 required_args={"path": str},
                 optional_args={"start_line": int, "end_line": int},
+                arg_docs={
+                    "path": "Workspace-relative file path.",
+                    "start_line": "First line to show, 1-based (default 1).",
+                    "end_line": "Last line to show, inclusive (default: end of file).",
+                },
                 path_args=("path",),
                 int_ranges={"start_line": (1, 10_000_000), "end_line": (1, 10_000_000)},
                 run=self._read_file,
@@ -321,6 +364,11 @@ class ToolRegistry:
                 description="Replace exactly one occurrence of old_text with new_text.",
                 permission=Permission.MUTATING,
                 required_args={"path": str, "old_text": str, "new_text": str},
+                arg_docs={
+                    "path": "Workspace-relative file path.",
+                    "old_text": "Exact text to replace; it must occur exactly once in the file.",
+                    "new_text": "Replacement text.",
+                },
                 path_args=("path",),
                 max_chars={"old_text": MAX_TEXT_CHARS, "new_text": MAX_TEXT_CHARS},
                 run=self._apply_edit,
@@ -332,6 +380,10 @@ class ToolRegistry:
                 description="Create a NEW text file (refuses to overwrite existing files).",
                 permission=Permission.MUTATING,
                 required_args={"path": str, "content": str},
+                arg_docs={
+                    "path": "Workspace-relative path of a file that does not exist yet.",
+                    "content": "Full text of the new file.",
+                },
                 path_args=("path",),
                 max_chars={"content": MAX_TEXT_CHARS},
                 run=self._write_file,
@@ -352,6 +404,12 @@ class ToolRegistry:
                 description="Run pytest on workspace test paths (allowlisted flags, no shell).",
                 permission=Permission.EXECUTION,
                 required_args={"cmd": str},
+                arg_docs={
+                    "cmd": (
+                        "Exactly 'python -m pytest' followed only by allowed flags "
+                        f"({ALLOWED_FLAGS_HELP}) and test paths inside the workspace."
+                    )
+                },
                 max_chars={"cmd": MAX_COMMAND_CHARS},
                 run=self._run_tests,
             )
@@ -359,6 +417,19 @@ class ToolRegistry:
 
     def _register(self, spec: ToolSpec) -> None:
         self.specs[spec.name] = spec
+
+    def register(self, spec: ToolSpec) -> None:
+        """Add a tool; it gets the same validation, policy, jail and trace as the built-ins."""
+        if spec.name in self.specs:
+            raise ValueError(f"a tool named {spec.name!r} is already registered")
+        self._register(spec)
+
+    def tool_schemas(self) -> list[ToolSchema]:
+        """Every registered tool as a model sees it."""
+        return [
+            ToolSchema(spec.name, spec.description, spec.json_schema())
+            for spec in self.specs.values()
+        ]
 
     # ------------------------------------------------------------- execution
 
