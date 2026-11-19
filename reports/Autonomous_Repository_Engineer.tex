@@ -55,8 +55,8 @@ test report with passing tests. With a deterministic planner that replays
 known fixes, the agent completes all four benchmark tasks with zero failed
 tool calls, and the committed results regenerate byte for byte on Windows
 and Linux. A live Gemini 2.5 Flash planner completed the two tasks it was
-run on. Of 36 adversarial tool calls, 29 are rejected before anything runs
-and 6 run without gaining anything; the remaining one is a documented
+run on. Of 39 adversarial tool calls, 29 are rejected before anything runs
+and 9 run without gaining anything; the remaining one is a documented
 residual: test code the agent writes still runs as the host user, which
 only an OS-level sandbox can prevent.
 \end{abstract}
@@ -248,15 +248,18 @@ replans left, ends the run in FAILED. Each replan passes the planner the
 reason and the end of the test output, where pytest reports failures.
 
 On a \texttt{done} proposal the runtime enters VERIFY. It first restores the
-protected paths and pytest control files from the starting snapshot and
-removes links created during the run, then runs the task's suite with a
+protected paths and pytest control files from the starting snapshot,
+whatever their size, and removes links and bytecode caches created during
+the run; then it runs the task's suite with a fresh bytecode cache and a
 JUnit report written outside the workspace. Verification passes only if the
 exit status is 0 and the report shows at least one passing test and no
 failures, so a suite that collects nothing, or code that ends the process
 early with status 0, does not pass. For the task whose goal is to add tests,
 the runtime also applies three seeded mutants to the protected code under
-test, and every mutant must make the new tests fail, which rejects vacuous
-tests. The planner's claim is never consulted. Files changed by successful
+test, each of which must make the new tests fail (rejecting vacuous tests),
+and two behaviour-preserving edits, which must leave them passing
+(rejecting tests that only pin the file's hash). The restore step runs again
+around every such run. The planner's claim is never consulted. Files changed by successful
 edits are tracked by their workspace path, and the full state serializes to
 a JSON trace.
 
@@ -344,12 +347,16 @@ pipeline and produce verified completions, and nothing more. It is not a
 SWE-bench result.
 
 \subsection{Adversarial Evidence}
-A generator script replays 36 hostile tool calls against a real registry,
+A generator script replays 39 hostile tool calls against a real registry,
 each in a fresh workspace with a secret directory beside it, a directory
 link pointing at that secret, protected tests and a repository whose git
 configuration would run a hook. Table~\ref{tab:attacks} summarizes the
 outcomes; the test suite re-runs the attacks and requires the committed
-evidence to match exactly with no breach. The single residual is the one
+evidence to match exactly with no breach. An independent adversarial review
+of the hardened runtime found further bypasses (among them a workspace file
+named like a pytest argument file, and planted bytecode that replaced a
+protected test); they were fixed, and the three expressible as tool calls
+were added to the evidence. The single residual is the one
 this design cannot close: test code written by the agent runs as the host
 user and can write outside the workspace.
 
@@ -365,17 +372,17 @@ Category & Rejected & Contained & Residual \\
 \midrule
 path escape & 6 & 0 & 0 \\
 shell commands & 2 & 0 & 0 \\
-malformed calls & 3 & 0 & 0 \\
-test command abuse & 8 & 0 & 0 \\
+malformed calls & 3 & 1 & 0 \\
+test command abuse & 8 & 1 & 0 \\
 path aliases & 3 & 0 & 0 \\
 git metadata & 2 & 1 & 0 \\
 links & 2 & 3 & 0 \\
 verification tampering & 2 & 0 & 0 \\
-resource limits & 1 & 1 & 0 \\
+resource limits & 1 & 2 & 0 \\
 credentials & 0 & 1 & 0 \\
 agent test code & 0 & 0 & 1 \\
 \midrule
-Total (36) & 29 & 6 & 1 \\
+Total (39) & 29 & 9 & 1 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -389,10 +396,13 @@ filesystem and network access, and the runtime's controls (environment
 allowlist, deadline, tree kill, output bound) protect the runtime, not the
 host. An OS-level sandbox is the planned remedy. (3) Verification runs the
 code under test in the same process as pytest, so code written to forge the
-test report on purpose could still pass; a verifier outside the agent's
-reach needs the same sandbox. (4) Write-time link checks narrow but do not
-close the race with a concurrent process, and on POSIX a process that starts
-its own session escapes the tree kill. (5) There is no transactional rollback
+test report on purpose could still pass, and on the add-a-test task a test
+that inspects the source text for specific tokens can pass the mutant and
+neutral-edit checks; a verifier outside the agent's reach needs the same
+sandbox. (4) Write-time link checks narrow but do not close the race with a
+concurrent process, and a process that leaves the tree on purpose (a new
+session on POSIX, or one created through a service such as WMI on Windows)
+escapes the tree kill. (5) There is no transactional rollback
 of edits; the trace is the review artifact. (6) Tool output reaches the
 planner verbatim apart from redaction of credentials and host paths, so
 prompt-injection resistance depends on the planner; the runtime bounds what
