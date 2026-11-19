@@ -196,8 +196,9 @@ DOUBLE_PATCH = (
     "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 2\n"
     "--- a/./app.py\n+++ b/./app.py\n@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 3\n"
 )
-# A unary chain deeper than the parser follows (review finding F4).
-DEEP_MODULE = "x = " + "-" * 3000 + "1\n"
+# A unary chain deeper than the parser follows on every platform (review
+# finding F4); 3000 levels already fail on Windows but parse on Linux 3.13.
+DEEP_MODULE = "x = " + "-" * 20_000 + "1\n"
 
 ATTACKS: tuple[Attack, ...] = (
     # The original eight, in their original order.

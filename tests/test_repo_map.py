@@ -96,7 +96,9 @@ def test_the_map_skips_links(tmp_path: Path) -> None:
 
 def test_a_file_too_deep_for_the_parser_is_listed_not_fatal() -> None:
     """Found by the Step 2 review: RecursionError escaped and broke the whole index."""
-    deep = "x = " + " + ".join(['"ab"'] * 6000) + "\n"
+    # Deep enough for every supported platform's parser to give up; the limit
+    # differs (6000 binary terms parse on Linux 3.13 but not on Windows).
+    deep = "x = " + "-" * 20_000 + "1\n"
     index = SymbolIndex.build({**SOURCES, "generated.py": deep})
     assert "generated.py" in index.unparsed
     assert "total" in {s.qualname for s in index.symbols}
@@ -107,9 +109,7 @@ def test_a_run_starts_even_if_the_repo_map_fails(workspace: Path) -> None:
     from repo_engineer.agent import AgentRuntime
     from repo_engineer.planner import RecordedPlanner
 
-    (workspace / "generated.py").write_text(
-        "x = " + " + ".join(['"ab"'] * 6000) + "\n", encoding="utf-8"
-    )
+    (workspace / "generated.py").write_text("x = " + "-" * 20_000 + "1\n", encoding="utf-8")
     state = AgentRuntime(ToolRegistry(workspace), RecordedPlanner([None])).run_task(
         {"task_id": "t"}
     )
