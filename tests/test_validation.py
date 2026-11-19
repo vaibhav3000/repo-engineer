@@ -1,0 +1,75 @@
+"""Argument validation and resource bounds on tool calls."""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+from conftest import error_text
+
+from repo_engineer.state import ToolCall
+from repo_engineer.tools import ToolRegistry
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("read_file", {"path": "app.py", "start_line": True}),
+        ("read_file", {"path": "app.py", "end_line": False}),
+        ("list_tree", {"max_depth": True}),
+    ],
+)
+def test_booleans_are_not_accepted_as_integers(
+    workspace: Path, tool: str, args: dict[str, Any]
+) -> None:
+    obs = ToolRegistry(workspace).execute(ToolCall(tool, args))
+    assert obs.rejected and "must be int" in error_text(obs)
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("read_file", {"path": "app.py", "start_line": 0}),
+        ("read_file", {"path": "app.py", "end_line": -1}),
+        ("list_tree", {"max_depth": 0}),
+        ("list_tree", {"max_depth": -3}),
+        ("list_tree", {"max_depth": 7}),
+    ],
+)
+def test_out_of_range_integers_are_rejected(
+    workspace: Path, tool: str, args: dict[str, Any]
+) -> None:
+    obs = ToolRegistry(workspace).execute(ToolCall(tool, args))
+    assert obs.rejected and "out of range" in error_text(obs)
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("write_file", {"path": "big.txt", "content": "x" * 1_000_001}),
+        ("apply_edit", {"path": "app.py", "old_text": "VALUE", "new_text": "x" * 1_000_001}),
+        ("search", {"pattern": "a" * 513}),
+        ("run_tests", {"cmd": "python -m pytest " + "-q " * 1000}),
+    ],
+)
+def test_oversized_strings_are_rejected(workspace: Path, tool: str, args: dict[str, Any]) -> None:
+    obs = ToolRegistry(workspace).execute(ToolCall(tool, args))
+    assert obs.rejected and "longer than" in error_text(obs)
+    assert not (workspace / "big.txt").exists()
+
+
+def test_catastrophic_regex_hits_the_search_deadline(workspace: Path) -> None:
+    (workspace / "evil.py").write_text("a" * 40 + "b\n", encoding="utf-8")
+    reg = ToolRegistry(workspace, search_timeout_s=2.0)
+    started = time.monotonic()
+    obs = reg.execute(ToolCall("search", {"pattern": "^(a+)+$"}))
+    assert time.monotonic() - started < 15
+    assert not obs.ok and not obs.rejected
+    assert "timed out" in error_text(obs)
+
+
+def test_search_still_finds_matches(workspace: Path) -> None:
+    obs = ToolRegistry(workspace).execute(ToolCall("search", {"pattern": "value"}))
+    assert obs.ok and "app.py:1:VALUE = 1" in obs.output_excerpt

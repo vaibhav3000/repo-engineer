@@ -7,21 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import error_text
+from conftest import error_text, make_dir_link
 
 from repo_engineer.state import ToolCall
 from repo_engineer.tools import Permission, ToolRegistry, ToolSpec
-
-
-def make_dir_link(link: Path, target: Path) -> None:
-    """A directory link the current user can always create: a junction on
-    Windows, a symlink elsewhere."""
-    if os.name == "nt":
-        import _winapi
-
-        _winapi.CreateJunction(str(target), str(link))
-    else:
-        os.symlink(target, link, target_is_directory=True)
 
 
 @pytest.fixture

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,17 @@ def error_text(obs: Observation) -> str:
     """The observation's error text; fails the test when there is none."""
     assert obs.error is not None, obs
     return obs.error
+
+
+def make_dir_link(link: Path, target: Path) -> None:
+    """A directory link the current user can always create: a junction on
+    Windows, a symlink elsewhere."""
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=True)
 
 
 @pytest.fixture

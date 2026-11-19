@@ -13,6 +13,7 @@ Design rules:
 from __future__ import annotations
 
 import configparser
+import json
 import os
 import re
 import shlex
@@ -75,8 +76,14 @@ ALLOWED_PYTEST_FLAG_FORMS = (
     re.compile(r"--capture=(no|sys|fd|tee-sys)"),
 )
 PYTEST_FLAGS_WITH_VALUE = frozenset({"-k", "-m"})
-# Paths a single search may examine before it stops.
+# Paths a single search may examine before it stops, and the most text it reads.
 MAX_SEARCH_CANDIDATES = 20_000
+MAX_SEARCH_FILE_BYTES = 1_000_000
+MAX_SEARCH_TOTAL_BYTES = 16_000_000
+MAX_PATTERN_CHARS = 512
+SEARCH_WORKER = Path(__file__).with_name("_search_worker.py")
+# Largest text a single edit or new file may carry.
+MAX_TEXT_CHARS = 1_000_000
 SHELL_SYNTAX = frozenset(";|&<>`$\n\r")
 ALLOWED_FLAGS_HELP = (
     "-q, -v, -x, -s, -l, -r<chars>, --tb=<style>, --maxfail=<n>, --capture=<method>, "
@@ -124,6 +131,9 @@ class ToolSpec:
     # before the tool runs, so a tool cannot forget to.
     path_args: tuple[str, ...] = ()
     glob_args: tuple[str, ...] = ()
+    # Inclusive bounds for integer arguments and length caps for strings.
+    int_ranges: dict[str, tuple[int, int]] = field(default_factory=dict)
+    max_chars: dict[str, int] = field(default_factory=dict)
 
     def validate(self, args: dict[str, Any]) -> str | None:
         """Return an error string when args violate the schema; None when valid."""
@@ -132,13 +142,13 @@ class ToolSpec:
         for key, expected in self.required_args.items():
             if key not in args:
                 return f"{self.name}: missing required argument '{key}'"
-            if not isinstance(args[key], expected):
+            if not _is_instance(args[key], expected):
                 return (
                     f"{self.name}: argument '{key}' must be {expected.__name__}, "
                     f"got {type(args[key]).__name__}"
                 )
         for key, expected in self.optional_args.items():
-            if key in args and not isinstance(args[key], expected):
+            if key in args and not _is_instance(args[key], expected):
                 return (
                     f"{self.name}: optional argument '{key}' must be {expected.__name__}, "
                     f"got {type(args[key]).__name__}"
@@ -146,7 +156,20 @@ class ToolSpec:
         unknown = set(args) - set(self.required_args) - set(self.optional_args)
         if unknown:
             return f"{self.name}: unknown arguments {sorted(unknown)}"
+        for key, (low, high) in self.int_ranges.items():
+            if key in args and not low <= args[key] <= high:
+                return f"{self.name}: argument '{key}' is out of range ({low}..{high})"
+        for key, limit in self.max_chars.items():
+            if key in args and len(args[key]) > limit:
+                return f"{self.name}: argument '{key}' is longer than {limit} characters"
         return None
+
+
+def _is_instance(value: Any, expected: type) -> bool:
+    """isinstance, except that a bool is never accepted where an int is expected."""
+    if expected is int and isinstance(value, bool):
+        return False
+    return isinstance(value, expected)
 
 
 class ToolRegistry:
@@ -158,11 +181,13 @@ class ToolRegistry:
         policy: dict[Permission, Policy] | None = None,
         ask_callback: Callable[[ToolSpec, dict[str, Any]], bool] | None = None,
         exec_timeout_s: float = 120.0,
+        search_timeout_s: float = 10.0,
     ) -> None:
         self.workspace = Path(workspace).resolve()
         self.policy: dict[Permission, Policy] = {**DEFAULT_POLICY, **(policy or {})}
         self.ask_callback = ask_callback
         self.exec_timeout_s = exec_timeout_s
+        self.search_timeout_s = search_timeout_s
         self.redact = Redactor(self.workspace)
         self.specs: dict[str, ToolSpec] = {}
         self._register_defaults()
@@ -206,6 +231,7 @@ class ToolRegistry:
                 permission=Permission.READ_ONLY,
                 required_args={},
                 optional_args={"max_depth": int},
+                int_ranges={"max_depth": (1, 6)},
                 run=self._list_tree,
             )
         )
@@ -217,6 +243,7 @@ class ToolRegistry:
                 required_args={"pattern": str},
                 optional_args={"glob": str},
                 glob_args=("glob",),
+                max_chars={"pattern": MAX_PATTERN_CHARS},
                 run=self._search,
             )
         )
@@ -228,6 +255,7 @@ class ToolRegistry:
                 required_args={"path": str},
                 optional_args={"start_line": int, "end_line": int},
                 path_args=("path",),
+                int_ranges={"start_line": (1, 10_000_000), "end_line": (1, 10_000_000)},
                 run=self._read_file,
             )
         )
@@ -238,6 +266,7 @@ class ToolRegistry:
                 permission=Permission.MUTATING,
                 required_args={"path": str, "old_text": str, "new_text": str},
                 path_args=("path",),
+                max_chars={"old_text": MAX_TEXT_CHARS, "new_text": MAX_TEXT_CHARS},
                 run=self._apply_edit,
             )
         )
@@ -248,6 +277,7 @@ class ToolRegistry:
                 permission=Permission.MUTATING,
                 required_args={"path": str, "content": str},
                 path_args=("path",),
+                max_chars={"content": MAX_TEXT_CHARS},
                 run=self._write_file,
             )
         )
@@ -266,6 +296,7 @@ class ToolRegistry:
                 description="Run a whitelisted test command inside the workspace.",
                 permission=Permission.EXECUTION,
                 required_args={"cmd": str},
+                max_chars={"cmd": MAX_COMMAND_CHARS},
                 run=self._run_tests,
             )
         )
@@ -321,18 +352,12 @@ class ToolRegistry:
                 output_excerpt=self.redact(str(output))[:OUTPUT_LIMIT],
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
-        except PermissionError as exc:
+        except JailViolation as exc:
+            # Refused by the jail or the command check: nothing was executed.
             return Observation(
                 tool=call.tool,
                 ok=False,
                 rejected=True,
-                error=self.redact(str(exc)),
-                latency_ms=(_time.perf_counter() - started) * 1000,
-            )
-        except FileNotFoundError as exc:
-            return Observation(
-                tool=call.tool,
-                ok=False,
                 error=self.redact(str(exc)),
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
@@ -348,13 +373,13 @@ class ToolRegistry:
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
         except OSError as exc:
-            # Remaining filesystem failures (IsADirectoryError,
-            # NotADirectoryError, WinError 183, disk-full, ...). PermissionError
-            # and FileNotFoundError are caught above.
+            # Filesystem failures, including an OS-level PermissionError on a
+            # read-only or locked file: the call was allowed and then failed,
+            # so it is ok=False but not a rejection.
             return Observation(
                 tool=call.tool,
                 ok=False,
-                error=self.redact(str(exc)),
+                error=self._describe_os_error(exc),
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
         except (ValueError, RuntimeError) as exc:
@@ -364,6 +389,17 @@ class ToolRegistry:
                 error=self.redact(str(exc)),
                 latency_ms=(_time.perf_counter() - started) * 1000,
             )
+
+    def _describe_os_error(self, exc: OSError) -> str:
+        """An OS error with its file shown relative to the workspace."""
+        if exc.filename is None:
+            return self.redact(str(exc))
+        name = Path(os.fsdecode(exc.filename))
+        try:
+            where = name.relative_to(self.workspace).as_posix()
+        except ValueError:
+            where = self.redact(str(name))
+        return f"{exc.strerror or type(exc).__name__}: {where}"
 
     def _jail_arguments(self, spec: ToolSpec, args: dict[str, Any]) -> dict[str, Any]:
         """Replace path and glob arguments with their jailed forms (or raise)."""
@@ -419,22 +455,47 @@ class ToolRegistry:
 
     def _search(self, pattern: str, glob: str = "**/*.py") -> str:
         try:
-            regex = re.compile(pattern, re.IGNORECASE)
+            re.compile(pattern, re.IGNORECASE)
         except re.error as exc:
             raise ValueError(f"invalid regex: {exc}") from exc
-        matches: list[str] = []
+        files: list[list[str]] = []
+        total = 0
         for path in sorted(self._search_candidates(glob)):
             try:
+                if path.stat().st_size > MAX_SEARCH_FILE_BYTES:
+                    continue
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
-            rel = self._display(path)
-            for line_no, line in enumerate(text.splitlines(), 1):
-                if regex.search(line):
-                    matches.append(f"{rel}:{line_no}:{line.strip()[:200]}")
-                    if len(matches) >= 100:
-                        return "\n".join(matches) + "\n(truncated at 100 matches)"
-        return "\n".join(matches) or "(no matches)"
+            total += len(text)
+            if total > MAX_SEARCH_TOTAL_BYTES:
+                break
+            files.append([self._display(path), text])
+        if not files:
+            return "(no matches)"
+        job = json.dumps({"pattern": pattern, "files": files}).encode("utf-8")
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-I", "-S", str(SEARCH_WORKER)],
+                input=job,
+                capture_output=True,
+                cwd=self.workspace,
+                env=child_env(),
+                timeout=self.search_timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"search timed out after {self.search_timeout_s:.0f}s; use a simpler pattern"
+            ) from exc
+        if proc.returncode != 0:
+            detail = proc.stderr.decode("utf-8", "replace").strip()[-300:]
+            raise RuntimeError(f"search failed: {detail}")
+        result = json.loads(proc.stdout.decode("utf-8"))
+        lines = [f"{rel}:{line_no}:{text}" for rel, line_no, text in result["matches"]]
+        if result["truncated"]:
+            lines.append("(truncated at 100 matches)")
+        return "\n".join(lines) or "(no matches)"
 
     def _search_candidates(self, glob: str) -> list[Path]:
         """Regular files matching glob that are really inside the workspace.
@@ -469,7 +530,7 @@ class ToolRegistry:
         shown = self._display(path)
         if not path.is_file():
             raise FileNotFoundError(f"not a file: {shown}")
-        text = path.read_text(encoding="utf-8")
+        text = self._read_text(path)
         occurrences = text.count(old_text)
         if occurrences == 0:
             raise ValueError(f"apply_edit: old_text not found in {shown}")
@@ -478,16 +539,49 @@ class ToolRegistry:
                 f"apply_edit: old_text matches {occurrences} times in {shown}; "
                 "edits must be unambiguous"
             )
-        path.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+        self._write_text(path, text.replace(old_text, new_text, 1), create=False)
         return f"edited {shown}: 1 replacement"
 
     def _write_file(self, path: Path, content: str) -> str:
         shown = self._display(path)
         if path.exists():
             raise ValueError(f"write_file refuses to overwrite existing {shown}; use apply_edit")
+        self._require_direct(path)  # before mkdir, which would follow a swapped-in link
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        self._write_text(path, content, create=True)
         return f"created {shown} ({len(content)} chars)"
+
+    # ------------------------------------------------------------- link-safe file access
+
+    def _require_direct(self, path: Path) -> None:
+        """Re-check a jailed path immediately before it is opened.
+
+        jailed_path() already refused links, but a concurrent process (test
+        code left running, for example) could swap a directory for a link
+        after that check. Checking again right before the open narrows that
+        window; O_NOFOLLOW refuses a link at the final component where the OS
+        supports it. Fully race-free access needs the Step 2 sandbox.
+        """
+        if not self._is_direct(path):
+            raise JailViolation(
+                f"path rejected: {self._display(path)!r} goes through a symbolic link, "
+                "junction or other alias"
+            )
+
+    def _read_text(self, path: Path) -> str:
+        self._require_direct(path)
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, encoding="utf-8") as handle:
+            return handle.read()
+
+    def _write_text(self, path: Path, text: str, *, create: bool) -> None:
+        """Write text; with create=True, fail rather than replace an existing file."""
+        self._require_direct(path)
+        flags = os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+        flags |= (os.O_CREAT | os.O_EXCL) if create else os.O_TRUNC
+        fd = os.open(path, flags, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
 
     def _git_diff(self) -> str:
         try:
