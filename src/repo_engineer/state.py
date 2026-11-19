@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from enum import StrEnum
 from typing import Any
@@ -102,16 +103,25 @@ class AgentState:
 class StateMachine:
     """Enforces legal transitions and a step budget."""
 
-    def __init__(self, state: AgentState, max_steps: int = 40, max_replans: int = 4) -> None:
+    def __init__(
+        self,
+        state: AgentState,
+        max_steps: int = 40,
+        max_replans: int = 4,
+        on_transition: Callable[[State, State], None] | None = None,
+    ) -> None:
         self.agent_state = state
         self.max_steps = max_steps
         self.max_replans = max_replans
+        self.on_transition = on_transition
 
     def transition(self, to: State) -> None:
         current = self.agent_state.state
         if to not in TRANSITIONS[current]:
             raise RuntimeError(f"illegal state transition {current.value} -> {to.value}")
         self.agent_state.state = to
+        if self.on_transition is not None:
+            self.on_transition(current, to)
 
     def budget_exhausted(self) -> bool:
         return self.agent_state.steps_used >= self.max_steps

@@ -20,6 +20,7 @@ and sandboxes every call, and only its own verification completes a task.
 
 from __future__ import annotations
 
+import time
 from collections import deque
 from collections.abc import Sequence
 from typing import Any
@@ -37,6 +38,7 @@ from .models import (
 from .planner import Planner, PlannerUsage
 from .schema import ToolSchema
 from .state import ToolCall
+from .trace import EventSink, NullSink, PriceTable, total_cost
 
 FINISH_TOOL = "finish"
 FINISH_SCHEMA = ToolSchema(
@@ -75,11 +77,15 @@ class NativeToolPlanner(Planner):
         *,
         max_nudges: int = 1,
         context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
+        prices: PriceTable | None = None,
     ) -> None:
         self.adapter = adapter
         self.max_nudges = max_nudges
         self.context_budget_tokens = context_budget_tokens
         self.compactions = 0  # tool results stubbed out to fit the budget, over all runs
+        self.prices = prices or PriceTable.empty()
+        self.costs: list[float | None] = []
+        self._events: EventSink = NullSink()
         self.model = adapter.model
         self.calls = 0
         self.total_usage = Usage()
@@ -97,8 +103,9 @@ class NativeToolPlanner(Planner):
 
     # ------------------------------------------------------------- Planner
 
-    def prepare(self, tools: Sequence[ToolSchema]) -> None:
+    def prepare(self, tools: Sequence[ToolSchema], events: EventSink | None = None) -> None:
         self._tools = [*tools, FINISH_SCHEMA]
+        self._events = events or NullSink()
         self._reset()
 
     def usage(self) -> PlannerUsage:
@@ -107,6 +114,7 @@ class NativeToolPlanner(Planner):
             calls=self.calls,
             prompt_tokens=self.total_usage.input_tokens,
             completion_tokens=self.total_usage.output_tokens,
+            cost_usd=total_cost(self.costs),
         )
 
     def observe_replan(self, reason: str, history: list[dict[str, Any]]) -> None:
@@ -122,10 +130,34 @@ class NativeToolPlanner(Planner):
             if self._awaiting:
                 raise RuntimeError("the runtime did not report a result for every tool call")
             self._messages, stubbed = compact(self._messages, self.context_budget_tokens)
-            self.compactions += stubbed
+            if stubbed:
+                self.compactions += stubbed
+                self._events.emit("compaction", stubbed=stubbed)
+            started = time.perf_counter()
             reply = self.adapter.complete(SYSTEM_PROMPT, self._messages, self._tools)
+            latency_ms = (time.perf_counter() - started) * 1000
             self.calls += 1
             self.total_usage = _add(self.total_usage, reply.usage)
+            cost = self.prices.cost(reply.model, reply.usage)
+            self.costs.append(cost)
+            self._events.emit(
+                "model_call",
+                provider=self.adapter.provider,
+                model=reply.model,
+                latency_ms=round(latency_ms, 1),
+                input_tokens=reply.usage.input_tokens,
+                output_tokens=reply.usage.output_tokens,
+                cache_read_tokens=reply.usage.cache_read_tokens,
+                cache_write_tokens=reply.usage.cache_write_tokens,
+                reasoning_tokens=reply.usage.reasoning_tokens,
+                cost_usd=cost,
+                stop_reason=reply.stop_reason,
+                text=reply.text[:2000],
+                tool_calls=[
+                    {"id": c.id, "name": c.name, "arguments": c.arguments, "raw": c.raw_arguments}
+                    for c in reply.tool_calls
+                ],
+            )
             self._messages.append(reply.to_message())
             if reply.tool_calls:
                 self._queue.extend(reply.tool_calls)

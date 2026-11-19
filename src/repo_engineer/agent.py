@@ -18,12 +18,15 @@ import json
 import logging
 import re
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .planner import Planner, PlannerUsage
 from .state import AgentState, Observation, State, StateMachine, ToolCall, write_trace
 from .tools import ToolRegistry, Verification
+from .trace import EventSink, NullSink, jsonable, workspace_digest
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +47,14 @@ class AgentRuntime:
         planner: Planner,
         max_steps: int = 40,
         max_replans: int = 4,
+        *,
+        events: EventSink | None = None,
     ) -> None:
         self.registry = registry
         self.planner = planner
         self.max_steps = max_steps
         self.max_replans = max_replans
+        self.events: EventSink = events or NullSink()
 
     def run_task(self, task: dict[str, Any], trace_path: Path | None = None) -> AgentState:
         state = AgentState(
@@ -58,9 +64,29 @@ class AgentRuntime:
             workspace=self.registry.workspace.name,
         )
         usage_at_start = self.planner.usage()
-        machine = StateMachine(state, max_steps=self.max_steps, max_replans=self.max_replans)
+        events = self.events
+        events.emit(
+            "run_start",
+            version=__version__,
+            task={k: v for k, v in task.items() if k != "path"},
+            planner=self.planner.name,
+            model=usage_at_start.model if usage_at_start is not None else None,
+            sandbox=self.registry.sandbox.name,
+            workspace=state.workspace,
+            workspace_digest=workspace_digest(self.registry.workspace),
+            max_steps=self.max_steps,
+            max_replans=self.max_replans,
+        )
+        machine = StateMachine(
+            state,
+            max_steps=self.max_steps,
+            max_replans=self.max_replans,
+            on_transition=lambda old, new: events.emit(
+                "state", **{"from": old.value, "to": new.value}
+            ),
+        )
         self.registry.protect(task.get("protected_paths", []))
-        self.planner.prepare(self.registry.tool_schemas())
+        self.planner.prepare(self.registry.tool_schemas(), events)
         machine.transition(State.ANALYZE_REPO)
         state.actions.append({"step": "analyze", "tool": "list_tree"})
         tree = self.registry.execute(ToolCall("list_tree", {}))
@@ -91,11 +117,21 @@ class AgentRuntime:
                 consecutive_planner_errors += 1
                 message = self.registry.redact(f"planner error: {type(exc).__name__}: {exc}")
                 state.errors.append(message[:200])
+                events.emit("planner_decision", decision="error", error=message[:500])
                 if consecutive_planner_errors >= MAX_CONSECUTIVE_PLANNER_ERRORS:
                     machine.transition(State.FAILED)
                     break
                 continue
             consecutive_planner_errors = 0
+            if action is None:
+                events.emit("planner_decision", decision="done")
+            else:
+                events.emit(
+                    "planner_decision",
+                    decision="call",
+                    tool=action.tool,
+                    args=jsonable(action.args),
+                )
             if action is None:
                 machine.transition(State.VERIFY)
             else:
@@ -111,6 +147,15 @@ class AgentRuntime:
                 # (synchronous approval via ask_callback), recorded like any
                 # other rejection.
                 observation = self.registry.execute(action)
+                events.emit(
+                    "tool_call",
+                    step=state.steps_used,
+                    tool=action.tool,
+                    args=jsonable(action.args),
+                    observation=_observation_dict(observation)
+                    | {"files_written": list(observation.files_written)},
+                    latency_ms=round(observation.latency_ms, 1),
+                )
                 machine.transition(State.OBSERVE)
                 state.observations.append(_observation_dict(observation))
                 history.append(_history_entry(action.tool, action.args, observation))
@@ -156,6 +201,7 @@ class AgentRuntime:
             state.steps_used += 1
             verify_cmd = task.get("verify_cmd", "python -m pytest tests/ -q")
             mutants = task.get("mutants", [])
+            verify_started = time.perf_counter()
             try:
                 result = self.registry.verify(verify_cmd, mutants, task.get("neutral_edits", []))
             except Exception as exc:
@@ -189,6 +235,19 @@ class AgentRuntime:
                     "neutral_edits_passed": result.neutral_edits_passed,
                 }
             )
+            events.emit(
+                "verify",
+                cmd=verify_cmd,
+                passed=result.passed,
+                reason=result.reason,
+                observation=_observation_dict(result.observation),
+                restored=list(result.restored),
+                mutants_total=result.mutants_total,
+                mutants_killed=result.mutants_killed,
+                neutral_edits_total=result.neutral_edits_total,
+                neutral_edits_passed=result.neutral_edits_passed,
+                latency_ms=round((time.perf_counter() - verify_started) * 1000, 1),
+            )
             if not result.passed:
                 state.errors.append(f"verification failed: {result.reason}")
             state.verified = result.passed
@@ -209,6 +268,17 @@ class AgentRuntime:
             break
 
         state.llm_usage = _usage_delta(usage_at_start, self.planner.usage())
+        events.emit(
+            "run_end",
+            final_state=state.state.value,
+            verified=state.verified,
+            steps=state.steps_used,
+            replans=state.replans,
+            planner_errors=state.planner_errors,
+            files_changed=list(state.files_changed),
+            errors=list(state.errors),
+            usage=state.llm_usage,
+        )
         if trace_path is not None:
             write_trace(state, trace_path)
         return state
@@ -231,6 +301,8 @@ class AgentRuntime:
             out["llm_prompt_tokens"] = state.llm_usage["prompt_tokens"]
             out["llm_completion_tokens"] = state.llm_usage["completion_tokens"]
             out["llm_model"] = state.llm_usage["model"]
+            if "cost_usd" in state.llm_usage:
+                out["llm_cost_usd"] = state.llm_usage["cost_usd"]
         return out
 
 
@@ -247,12 +319,16 @@ def _usage_delta(start: PlannerUsage | None, end: PlannerUsage | None) -> dict[s
             start.completion_tokens,
         )
     )
-    return {
+    delta: dict[str, Any] = {
         "model": end.model,
         "calls": end.calls - calls,
         "prompt_tokens": end.prompt_tokens - prompt,
         "completion_tokens": end.completion_tokens - completion,
     }
+    if end.cost_usd is not None:
+        before = start.cost_usd if start is not None and start.cost_usd is not None else 0.0
+        delta["cost_usd"] = round(end.cost_usd - before, 6)
+    return delta
 
 
 def _tail(text: str, limit: int = HISTORY_OUTPUT_CHARS) -> str:
