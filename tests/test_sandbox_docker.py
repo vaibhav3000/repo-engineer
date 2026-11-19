@@ -13,11 +13,12 @@ import base64
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import docker_ready  # noqa: F401  (used by the skipif condition)
 
-from repo_engineer.process import ProcessResult
+from repo_engineer.process import ProcessResult, run_bounded
 from repo_engineer.sandbox import (
     DockerSandbox,
     PytestInvocation,
@@ -224,12 +225,18 @@ def test_a_timeout_removes_the_container(workspace: Path) -> None:
     write_test(
         workspace, "test_hang.py", "import time\n\n\ndef test_hang():\n    time.sleep(120)\n"
     )
-    sandbox = DockerSandbox()
+    names: list[str] = []
+
+    def runner(argv: Sequence[str], **kwargs: Any) -> ProcessResult:
+        names.extend(flag_values(list(argv), "--name"))
+        return run_bounded(argv, **kwargs)
+
+    sandbox = DockerSandbox(runner=runner)
     run = sandbox.run_pytest(workspace, invocation("-q", "./tests/test_hang.py"), 8.0)
     assert run.timed_out and run.exit_code is None
-    listed = sandbox.call(
-        [*sandbox.docker_cmd, "ps", "-aq", "--filter", "label=repo-engineer.sandbox"], 30.0
-    )
+    # Only this run's container: other sandbox runs may be alive on the same daemon.
+    (name,) = names
+    listed = sandbox.call([*sandbox.docker_cmd, "ps", "-aq", "--filter", f"name=^{name}$"], 30.0)
     assert listed.stdout.strip() == ""
 
 
