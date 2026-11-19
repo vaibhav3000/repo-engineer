@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 # Environment variables whose values are treated as credentials.
@@ -24,7 +25,9 @@ SECRET_PLACEHOLDER = "<redacted>"
 class Redactor:
     """Replaces credential values and absolute host paths with placeholders."""
 
-    def __init__(self, workspace: Path) -> None:
+    def __init__(self, workspace: Path, aliases: Mapping[str, str] | None = None) -> None:
+        """aliases maps further path spellings to placeholders, for example the
+        paths a sandbox container uses for the workspace and its interpreter."""
         anchors = [
             (workspace, "<workspace>"),
             (Path(sys.prefix), "<python-env>"),
@@ -34,9 +37,14 @@ class Redactor:
             (Path(tempfile.gettempdir()), "<tmp>"),
             (Path.home(), "~"),
         ]
-        variants: dict[str, str] = {}
+        variants: dict[str, str] = dict(aliases or {})
         for path, token in anchors:
-            for form in _path_forms(path):
+            forms = _path_forms(path)
+            if token.startswith("<python"):
+                # pytest prints frames outside its rootdir relative to it
+                # ("../../../Programs/Python/..."), which still maps the host.
+                forms |= _relative_forms(path, workspace)
+            for form in forms:
                 # Skip roots and very short paths, which would mangle all output.
                 if len(form) >= 4 and form not in variants:
                     variants[form] = token
@@ -64,6 +72,17 @@ def _secret_values() -> list[str]:
         if SECRET_NAME.search(name) and len(value.strip()) >= MIN_SECRET_LENGTH
     }
     return sorted(values, key=len, reverse=True)
+
+
+def _relative_forms(path: Path, start: Path) -> set[str]:
+    """path relative to start, when it climbs out of start (with either separator)."""
+    try:
+        relative = os.path.relpath(path, start)
+    except ValueError:
+        return set()  # different drives on Windows: no relative spelling exists
+    if not relative.startswith(".."):
+        return set()
+    return {relative, relative.replace("\\", "/")}
 
 
 def _path_forms(path: Path) -> set[str]:

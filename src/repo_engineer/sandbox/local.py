@@ -46,6 +46,7 @@ class LocalSandbox:
 
     def __init__(self, limits: SandboxLimits | None = None) -> None:
         self.limits = limits or SandboxLimits()
+        self.output_aliases: dict[str, str] = {}
 
     def pytest_argv(
         self, workspace: Path, invocation: PytestInvocation, extra: tuple[str, ...] = ()

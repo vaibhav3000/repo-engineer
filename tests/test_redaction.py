@@ -89,3 +89,26 @@ def test_failing_tmp_path_output_does_not_name_the_user(workspace: Path) -> None
     user = getpass.getuser().lower()
     assert user not in obs.output_excerpt.lower()
     assert "pytest-of-" not in obs.output_excerpt
+
+
+def test_interpreter_paths_relative_to_the_workspace_are_redacted(workspace: Path) -> None:
+    """pytest prints stdlib frames relative to its rootdir (found in an ImportError trace)."""
+    from repo_engineer.redaction import Redactor
+
+    relative = os.path.relpath(Path(sys.base_prefix) / "Lib" / "importlib", workspace)
+    if not relative.startswith(".."):
+        pytest.skip("the interpreter lives inside the workspace's tree")
+    text = f"{relative}{os.sep}__init__.py:88: in import_module"
+    redacted = Redactor(workspace)(text)
+    assert relative not in redacted and "<python>" in redacted
+    assert Redactor(workspace)(text.replace(os.sep, "/")).startswith("<python>")
+
+
+def test_sandbox_paths_are_redacted_like_host_paths(workspace: Path) -> None:
+    from repo_engineer.redaction import Redactor
+
+    redact = Redactor(workspace, aliases={"/work": "<workspace>"})
+    assert redact("from '/work/textkit/old_strings.py'") == (
+        "from '<workspace>/textkit/old_strings.py'"
+    )
+    assert redact("/workshop/x") == "/workshop/x"

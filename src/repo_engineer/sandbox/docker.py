@@ -48,6 +48,7 @@ from .base import (
 DOCKERFILE = Path(__file__).with_name("Dockerfile")
 DOCKER_CMD_ENV = "REPO_ENGINEER_DOCKER_CMD"
 WORKDIR = "/work"
+CONTAINER_STDLIB = "/usr/local/lib/python3.13"  # python:3.13-slim, pinned in the Dockerfile
 REPORT_PATH = "/tmp/junit.xml"
 # Largest JUnit report the wrapper sends back; a larger one counts as missing.
 MAX_REPORT_BYTES = 512 * 1024
@@ -186,6 +187,11 @@ class DockerSandbox:
     ) -> None:
         self.limits = limits or SandboxLimits()
         self.image = image or default_image()
+        # The workspace and the interpreter as tracebacks inside the container name them.
+        self.output_aliases: dict[str, str] = {
+            WORKDIR: "<workspace>",
+            CONTAINER_STDLIB: "<python>",
+        }
         self.docker_cmd = list(docker_cmd) if docker_cmd is not None else default_docker_cmd()
         self.runner = runner
         self.call = call

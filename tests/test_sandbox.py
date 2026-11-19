@@ -33,6 +33,7 @@ class RecordingSandbox:
     """A sandbox that records what the registry asks it to run."""
 
     name = "recording"
+    output_aliases: dict[str, str] = {}  # noqa: RUF012
 
     def __init__(self) -> None:
         self.calls: list[tuple[Path, PytestInvocation, float]] = []

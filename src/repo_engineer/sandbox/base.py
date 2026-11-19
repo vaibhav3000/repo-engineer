@@ -84,6 +84,9 @@ class Sandbox(Protocol):
     """Runs a checked pytest invocation, or a stdio tool server, against a workspace."""
 
     name: str
+    # Path spellings that appear in this sandbox's output and the placeholder
+    # each is redacted to (a container's workdir and interpreter, say).
+    output_aliases: dict[str, str]
 
     def run_pytest(
         self, workspace: Path, invocation: PytestInvocation, timeout_s: float

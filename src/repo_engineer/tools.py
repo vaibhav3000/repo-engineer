@@ -288,7 +288,7 @@ class ToolRegistry:
         self.ask_callback = ask_callback
         self.exec_timeout_s = exec_timeout_s
         self.search_timeout_s = search_timeout_s
-        self.redact = Redactor(self.workspace)
+        self.redact = Redactor(self.workspace, aliases=self.sandbox.output_aliases)
         self.snapshot = WorkspaceSnapshot(self.workspace)
         self.snapshot.pin(controls_pytest)
         self.protected_prefixes: tuple[str, ...] = ()
