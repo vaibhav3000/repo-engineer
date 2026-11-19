@@ -62,6 +62,12 @@ def _pid_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
+    # A killed process stays visible as a zombie until it is reaped, and in a
+    # container without an init process nobody reaps orphans. A zombie is dead.
+    stat = Path(f"/proc/{pid}/stat")
+    if stat.exists():
+        state = stat.read_text().rsplit(")", 1)[-1].split()[0]
+        return state != "Z"
     return True
 
 
