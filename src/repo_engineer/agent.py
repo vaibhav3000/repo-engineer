@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -276,7 +277,31 @@ def _jsonable(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def prepare_workspace(source: Path, runs_root: Path, task_id: str) -> Path:
-    """Copy a pristine task repo into a fresh per-run workspace."""
-    target = runs_root / f"{task_id}_{len(list(runs_root.glob(f'{task_id}_*'))) + 1}"
-    shutil.copytree(source, target)
-    return target
+    """Copy a pristine task repo into a fresh workspace runs_root/<task_id>_<n>.
+
+    n is one more than the highest existing workspace number for the task, so
+    trace files next to the workspaces and deleted older runs do not matter.
+    Bytecode and pytest caches in the source are not copied.
+    """
+    runs_root.mkdir(parents=True, exist_ok=True)
+    pattern = re.compile(rf"{re.escape(task_id)}_([0-9]+)")
+    taken = [
+        int(match.group(1))
+        for entry in runs_root.iterdir()
+        if entry.is_dir() and (match := pattern.fullmatch(entry.name))
+    ]
+    number = max(taken, default=0) + 1
+    while True:
+        target = runs_root / f"{task_id}_{number}"
+        try:
+            target.mkdir()
+        except FileExistsError:
+            number += 1  # created concurrently; take the next number
+            continue
+        shutil.copytree(
+            source,
+            target,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+        )
+        return target
