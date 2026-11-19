@@ -3,19 +3,37 @@ name: Demo E2E
 on:
   workflow_dispatch:
   push:
-    paths: ["demo-site/**"]
+    branches: [main]
+    paths: ["demo-site/**", "results/**"]
+  pull_request:
+    paths: ["demo-site/**", "results/**"]
+
+permissions:
+  contents: read
 
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: demo-site
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          node-version: 20
-      - run: npm install
-      - run: npx playwright install --with-deps chromium
-      - run: npx playwright test
+          python-version: "3.13"
+      - name: data.js must match the committed results
+        run: |
+          python demo-site/build.py
+          git diff --exit-code demo-site/data.js
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: demo-site/package-lock.json
+      - name: Install dependencies
+        working-directory: demo-site
+        run: npm ci
+      - name: Install Chromium
+        working-directory: demo-site
+        run: npx playwright install --with-deps chromium
+      - name: Playwright tests
+        working-directory: demo-site
+        run: npx playwright test

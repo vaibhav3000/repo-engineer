@@ -1,0 +1,4 @@
+# Golden files are generated with LF line endings on every platform; keep them LF
+# in Windows checkouts too so regenerating them leaves git diff empty.
+results/** text eol=lf
+demo-site/data.js text eol=lf
