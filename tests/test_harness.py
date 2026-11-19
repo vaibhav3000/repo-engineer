@@ -55,7 +55,7 @@ def test_results_and_traces_are_byte_stable_and_machine_independent(tmp_path: Pa
         files = sorted((out / "results").rglob("*.json"))
         outputs.append({f.relative_to(out).as_posix(): f.read_bytes() for f in files})
     assert outputs[0] == outputs[1]
-    assert len(outputs[0]) == 5
+    assert len(outputs[0]) == 1 + len(harness.load_tasks())  # results file plus one trace per task
     for name, data in outputs[0].items():
         text = data.decode("utf-8")
         assert str(tmp_path) not in text and "first run" not in text, name
