@@ -14,7 +14,8 @@ test("page loads with replay, benchmark record, and attack panel", async ({ page
   await expect(page).toHaveTitle(/Agent Run Explorer/);
   await expect(page.locator("#pipeline .g")).toHaveCount(6);
   await expect(page.locator("#task-btns button")).toHaveCount(4);
-  await expect(page.locator("#attacks details")).toHaveCount(8);
+  // one card per recorded attack in results/jail_attack_evidence.json
+  await expect(page.locator("#attacks details")).toHaveCount(36);
   const ok = await page.evaluate(() => ({
     traces: Object.keys(window.DATA.traces).length,
     benchmark: window.DATA.benchmark.summary.n_success,
@@ -67,10 +68,10 @@ test("attack panel stops at the real gate with the real rejection", async ({ pag
   await first.locator("summary").click();
   await expect(first.locator(".g.stop")).toHaveText("JAIL");
   await expect(first.locator(".err")).toContainText("path escape rejected");
-  // allowlist attack stops at POLICY
+  // the command check runs inside run_tests, after the policy gate and before any process starts
   const curl = page.locator("#attacks details", { hasText: "curl" });
   await curl.locator("summary").click();
-  await expect(curl.locator(".g.stop")).toHaveText("POLICY");
+  await expect(curl.locator(".g.stop")).toHaveText("EXECUTION");
   await expect(curl.locator(".err")).toContainText("not in allowlist");
   // replay animation resets then re-applies the final state
   await first.locator(".attack-replay").click();

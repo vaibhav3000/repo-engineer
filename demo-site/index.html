@@ -60,9 +60,13 @@
   .attacks{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
   details.attack{border:1px solid var(--line);border-radius:8px;background:#fff}
   details.attack summary{cursor:pointer;padding:10px 12px;list-style:none;display:flex;justify-content:space-between;gap:8px;align-items:center}
+  details.attack summary .mono{min-width:0;overflow-wrap:anywhere}
+  details.attack summary .blocked{flex-shrink:0}
   details.attack summary::-webkit-details-marker{display:none}
   details.attack summary:hover{background:var(--panel)}
   .blocked{color:var(--bad);font-weight:700;font-size:.8rem;white-space:nowrap}
+  .blocked.contained{color:var(--good)}
+  .blocked.residual{color:#8a5a00}
   .attackbody{padding:0 12px 12px;border-top:1px solid var(--line);font-size:.88rem}
   .gatepath{color:var(--muted);font-size:.8rem;margin:8px 0 4px}
   .attackbody .g.pass{border-color:var(--good)!important;color:var(--good)!important}
@@ -118,13 +122,13 @@
 <main>
   <div class="hero">
     <h1>The planner proposes. The runtime disposes.</h1>
-    <p class="lead">A verified tool-using coding agent: a deterministic <span class="term" tabindex="0" data-tip="Explicit state machine (state.py): INIT, ANALYZE_REPO, PLAN, ACT, OBSERVE, REPLAN, VERIFY, COMPLETE, FAILED - illegal transitions raise.">state machine</span> validates every tool call against a schema, checks permission policies, jails every path inside the workspace, and trusts nothing except
+    <p class="lead">A verified tool-using coding agent: a deterministic <span class="term" tabindex="0" data-tip="Explicit state machine (state.py): INIT, ANALYZE_REPO, PLAN, ACT, OBSERVE, REPLAN, VERIFY, COMPLETE, FAILED - illegal transitions raise.">state machine</span> validates every tool call against a schema, checks permission policies, jails every path argument inside the workspace, and trusts nothing except
       a green test suite. Below: real executions from the committed deterministic benchmark, replayed step by step,
       and the jail's actual rejection messages.</p>
     <div class="chips">
       <span class="chip">Deterministic benchmark: <b>4/4</b> tasks, <b>zero failed tool calls</b></span>
-      <span class="chip">Live Gemini planner: <b>2/2</b> on the same runtime (2 rate-limit errors absorbed)</span>
-      <span class="chip">Completion requires <b>exit=0</b> test evidence - never a model's claim</span>
+      <span class="chip">Live Gemini planner: <b>2/2</b> tasks, one recorded run (2 rate-limit errors absorbed)</span>
+      <span class="chip">Completion requires the runtime's own <b>passing test run</b>, never a model's claim</span>
     </div>
   </div>
 
@@ -151,21 +155,24 @@
       <div class="card" id="action-card"><h3>Proposed action &amp; gates</h3><div id="action-view"></div></div>
       <div class="card" id="obs-card"><h3>Observation (runtime record)</h3><div id="obs-view"></div></div>
     </div>
-    <div class="card" style="margin-top:14px"><h3>Files changed (proposed paths)</h3><div id="files-view" class="mono" style="font-size:.9rem"></div></div>
+    <div class="card" style="margin-top:14px"><h3>Files changed (successful edits)</h3><div id="files-view" class="mono" style="font-size:.9rem"></div></div>
   </section>
 
   <section id="bench-sec" aria-labelledby="bench-h">
     <h2 id="bench-h">Benchmark record</h2>
     <div class="stepgrid">
       <div class="card"><h3>Deterministic (reproducible)</h3><div id="bench-det"></div></div>
-      <div class="card"><h3>Live LLM planner (recorded 2026-09-16)</h3><div id="bench-llm"></div></div>
+      <div class="card"><h3>Live LLM planner (recorded 2026-09-17, one run)</h3><div id="bench-llm"></div></div>
     </div>
   </section>
 
   <section id="jail-sec" aria-labelledby="jail-h">
-    <h2 id="jail-h">Attack the jail (real rejections)</h2>
-    <p class="sub">Each card replays a hostile tool call against the real <span class="term" tabindex="0" data-tip="ToolRegistry (tools.py): schema validation, permission policies, resolve-based path jail, allowlisted test execution.">ToolRegistry</span>; the
-      rejection text is captured output, not a mock. Open a card to see which gate stops it. <span class="badge badge-measured">captured output</span></p>
+    <h2 id="jail-h">Attack the runtime (recorded outcomes)</h2>
+    <p class="sub">Each card replays a hostile tool call against the real <span class="term" tabindex="0" data-tip="ToolRegistry (tools.py): schema validation, permission policies, lexical path jail, allowlisted test execution.">ToolRegistry</span>
+      by <span class="mono">scripts/run_jail_attacks.py</span>; the text is captured output, not a mock. Open a card to see which gate stops it,
+      or what the evidence shows when a call runs. One card is the documented residual: agent-written test code runs as the host user.
+      <span class="badge badge-measured">captured output</span></p>
+    <p class="sub" id="attack-summary"></p>
     <div class="attacks" id="attacks"></div>
   </section>
 
@@ -173,10 +180,10 @@
     <div>Replay-only demo: no planner, no LLM, no shell - the traces and rejection messages come from
       <span class="mono">results/</span> in
       <a href="https://github.com/vaibhav3000/repo-engineer">github.com/vaibhav3000/repo-engineer</a>
-      (regenerate with <span class="mono">python scripts/run_benchmark.py</span> and
-      <span class="mono">python demo-site/build.py</span>).
-      The deterministic mode remains the regression harness; the recorded LLM run demonstrates end-to-end capability
-      and covers two of the four tasks, once each - a demonstration, not a leaderboard.
+      (regenerate with <span class="mono">python scripts/run_benchmark.py</span>,
+      <span class="mono">python scripts/run_jail_attacks.py</span> and <span class="mono">python demo-site/build.py</span>).
+      The deterministic mode replays known fixes and remains the regression harness; the recorded LLM run demonstrates end-to-end capability
+      and covers two of the four tasks, once each, on an earlier runtime revision: a demonstration, not a leaderboard.
       Keyboard: Space play/pause, &larr;/&rarr; step, R reset - for the active player.</div>
   </footer>
 </main>
@@ -218,20 +225,29 @@ function steps(taskId){
   const t = DATA.traces[taskId];
   // the committed traces already include the analyze call as actions[0];
   // do not add a second synthetic analyze step
+  // the runtime's own VERIFY run is recorded as an action with step "verify"
+  const verifies = (t.test_results || []).filter(r => r.verify);
+  let v = 0;
   const list = t.actions.map((a, i) => {
     if (a.step === "analyze") return {kind:"analyze"};
+    if (a.step === "verify"){ const r = verifies[v++] || {}; return {kind:"verify", obs:t.observations[i], passed: !!r.passed, result: r}; }
     return {kind:"action", action:a, obs:t.observations[i]};
   });
-  const verify = (t.test_results || []).find(r => r.verify);
-  list.push({kind:"verify", passed: verify ? verify.passed : null});
+  if (!list.some(s => s.kind === "verify")){
+    const r = verifies[verifies.length - 1];
+    list.push({kind:"verify", passed: r ? r.passed : null});
+  }
   list.push({kind:"complete", passed: t.state === "COMPLETE"});
   return list;
+}
+function exitZero(obs){
+  return !!obs && obs.ok && (obs.exit_code === 0 || String(obs.output_excerpt).startsWith("exit=0"));
 }
 function stateFor(step){
   if (step.kind === "analyze") return "ANALYZE_REPO";
   if (step.kind === "action"){
     const isTest = step.action.tool === "run_tests";
-    if (isTest && step.obs && step.obs.ok && String(step.obs.output_excerpt).startsWith("exit=0")) return "VERIFY";
+    if (isTest && exitZero(step.obs)) return "VERIFY";
     if (isTest) return "REPLAN";
     return "OBSERVE";
   }
@@ -272,23 +288,24 @@ function renderLane(){
 
 /* gate pipeline: which gate stops this call (or does it run through)? */
 function stopGate(obs){
-  const e = (obs.error || "");
+  return gateIndex(obs.error || "");
+}
+/* which gate produced a rejection message (-1: no rejection) */
+function gateIndex(e){
+  if (!e) return -1;
   if (e.includes("unknown tool")) return 1;                       // registry lookup fails at the schema stage
-  if (e.includes("must be") || e.includes("missing required") || e.includes("unknown arguments")) return 1;
-  if (e.includes("allowlist")) return 2;                          // execution-class policy
-  if (e.includes("policy") || e.includes("approval")) return 2;
-  if (e.includes("path escape") || e.includes("glob")) return 3;  // workspace jail
-  return -1; // no rejection
+  if (e.includes("must be") || e.includes("missing required") || e.includes("unknown arguments")
+      || e.includes("out of range") || e.includes("longer than")) return 1;
+  if (e.includes("policy")) return 2;                             // permission policy
+  if (e.includes("path escape") || e.includes("path rejected") || e.includes("glob")) return 3; // workspace jail
+  return 4; // run_tests command check: refused inside EXECUTION, before any process starts
 }
 /* outcome semantics: gates can all pass and the run still FAIL its purpose
    (run_tests returning exit=1 executed fine - the suite is red). */
 function outcomeFailed(action, obs){
   if (!obs) return false;
   if (!obs.ok && !obs.rejected) return true;
-  if (action && action.tool === "run_tests" && obs.ok){
-    const out = String(obs.output_excerpt || "");
-    return out.startsWith("exit=") && !out.startsWith("exit=0");
-  }
+  if (action && action.tool === "run_tests" && obs.ok) return !exitZero(obs);
   return false;
 }
 function renderPipeline(action, obs){
@@ -358,22 +375,25 @@ function renderStep(instant){
     const isTest = a.tool === "run_tests";
     actionView.innerHTML = `
       <p style="margin:4px 0" class="mono"><b>${esc(a.tool)}</b> ${esc(JSON.stringify(a.args))}</p>
-      ${isTest ? '<p class="sub" style="margin:2px 0 0;font-size:.8rem">run_tests is allowlisted (python -m pytest / unittest), runs without a shell, with a timeout.</p>' : ""}`;
+      ${isTest ? '<p class="sub" style="margin:2px 0 0;font-size:.8rem">run_tests accepts python -m pytest with allowlisted flags and workspace paths; it runs without a shell, with a deadline and a process-tree kill.</p>' : ""}`;
     obsView.innerHTML = o.error
       ? `<p class="no" style="margin:4px 0">ok=false (rejected)</p><pre>${esc(o.error)}</pre>`
       : `<p class="${o.ok ? "yes" : "no"}" style="margin:4px 0">ok=${o.ok}</p><pre>${esc(o.output_excerpt)}</pre>`;
     if (instant || REDUCED) renderPipeline(a, o); else animatePipeline(a, o);
   } else if (step.kind === "verify"){
     document.getElementById("action-card").querySelector("h3").textContent = "Verification gate";
-    document.getElementById("action-view").innerHTML = `<p style="margin:4px 0"><b>VERIFY</b> - the runtime re-runs the suite itself; the planner cannot claim completion.</p>`;
+    const r = step.result || {};
+    const mutants = r.mutants_total ? ` Seeded mutants caught: ${r.mutants_killed}/${r.mutants_total}.` : "";
+    document.getElementById("action-view").innerHTML = `<p style="margin:4px 0"><b>VERIFY</b> - the runtime restores protected files and re-runs the suite itself; the planner cannot claim completion.${esc(mutants)}</p>`;
+    const evidence = step.obs && step.obs.output_excerpt ? step.obs.output_excerpt : "exit=0";
     document.getElementById("obs-view").innerHTML = step.passed
-      ? `<p class="yes" style="margin:4px 0">green test evidence recorded</p><pre>exit=0</pre>`
-      : `<p class="no" style="margin:4px 0">tests failed</p>`;
+      ? `<p class="yes" style="margin:4px 0">exit 0 with a passing test report</p><pre>${esc(evidence)}</pre>`
+      : `<p class="no" style="margin:4px 0">verification failed</p>${step.obs ? `<pre>${esc(step.obs.output_excerpt || step.obs.error || "")}</pre>` : ""}`;
     renderPipeline(null, {ok:true, rejected:false, error:null});
-    document.getElementById("pipeline-note").textContent = "The verify run is allowlisted and runtime-initiated; only exit=0 opens COMPLETE.";
+    document.getElementById("pipeline-note").textContent = "The verify run is runtime-initiated on restored files; only exit 0 with a passing test report opens COMPLETE.";
   } else {
     document.getElementById("action-card").querySelector("h3").textContent = "Terminal state";
-    document.getElementById("action-view").innerHTML = `<p style="margin:4px 0"><b>COMPLETE</b> - reachable only from VERIFY with exit=0.</p>`;
+    document.getElementById("action-view").innerHTML = `<p style="margin:4px 0"><b>COMPLETE</b> - reachable only from a passing VERIFY.</p>`;
     document.getElementById("obs-view").innerHTML = `<p class="${step.passed ? "yes" : "no"}" style="margin:4px 0">final state: ${esc(t.state)}${t.errors && t.errors.length ? " - errors: " + esc(t.errors.join("; ")) : ""}</p>`;
     renderPipeline(null, null);
     document.getElementById("pipeline-note").textContent = "";
@@ -425,30 +445,41 @@ const llmRows = DATA.llm_benchmark.tasks.map(t => `
 document.getElementById("bench-llm").innerHTML = `
   <table><thead><tr><th>task</th><th>success</th><th class="num">LLM calls</th><th class="num">failed calls</th><th>notes</th></tr></thead>
   <tbody>${llmRows}</tbody></table>
-  <p class="sub" style="margin:8px 0 0;font-size:.85rem">gemini-2.5-flash, temperature 0, same runtime; small-n by design.</p>`;
+  <p class="sub" style="margin:8px 0 0;font-size:.85rem">gemini-2.5-flash, temperature 0, one run on an earlier runtime revision; LLM calls are per task (corrected from cumulative counters).</p>`;
 
 /* ---------- attacks with gate animation ---------- */
+const GATE_NAMES = ["request", "schema validation", "permission policy", "workspace jail", "run_tests command check", "observation"];
 function renderAttacks(){
   const box = document.getElementById("attacks");
-  DATA.attacks.forEach(a => {
-    const gate = a.error.includes("allowlist") ? "command allowlist"
-      : a.error.includes("unknown tool") ? "tool registry"
-      : a.error.includes("must be") ? "schema validation"
-      : "workspace jail";
+  const s = DATA.attacks.summary;
+  document.getElementById("attack-summary").textContent =
+    `${s.total} attempts: ${s.rejected} rejected before anything ran, ${s.contained} ran and gained nothing, ${s.residual} documented residual, ${s.breached} breached.`;
+  DATA.attacks.attacks.forEach(a => {
     const gates = ["REQUEST","SCHEMA","POLICY","JAIL","EXECUTION","OBSERVATION"];
-    const stopIdx = gate === "schema validation" || gate === "tool registry" ? 1
-                  : gate === "command allowlist" ? 2 : 3;
+    const rejected = a.outcome === "rejected";
+    const stopIdx = rejected ? gateIndex(a.error || "") : gates.length;
+    const evidence = Object.entries(a.evidence || {}).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`).join("; ");
+    const label = {rejected: "BLOCKED", contained: "CONTAINED", residual: "RESIDUAL", breached: "BREACHED"}[a.outcome] || a.outcome;
+    const verdict = rejected
+      ? `Stopped at <b>${esc(GATE_NAMES[stopIdx])}</b> - rejected before execution; no file read, no command run.`
+      : a.outcome === "contained"
+        ? `Ran through every gate; the recorded evidence shows it gained nothing.`
+        : a.outcome === "residual"
+          ? `Ran and succeeded: the documented residual. Agent-written test code runs as the host user until an OS sandbox exists.`
+          : `Ran and achieved its goal: a breach.`;
+    const detail = [a.error, evidence].filter(Boolean).join("\n") || "(no error)";
     const d = document.createElement("details");
     d.className = "attack";
     d.innerHTML = `
       <summary><span class="mono">${esc(a.tool)}(${esc(JSON.stringify(a.args)).slice(1, -1)})</span>
-      <span class="blocked">BLOCKED</span></summary>
+      <span class="blocked ${esc(a.outcome)}">${esc(label)}</span></summary>
       <div class="attackbody">
+        <p class="sub" style="margin:6px 0 0;font-size:.8rem">${esc(a.id)} &middot; ${esc(a.category)}: ${esc(a.description)}</p>
         <div class="pipeline mini" style="display:flex;gap:4px;flex-wrap:wrap;margin:10px 0 4px">
           ${gates.map((g) => `<span class="g" style="border-radius:6px;padding:4px 8px;font-size:.72rem;background:#fff;transition:all .2s">${g}</span>`).join('<span class="arr" style="color:var(--muted);font-size:.7rem">\u2192</span>')}
         </div>
-        <p class="gatepath" hidden>Stopped at <b>${esc(gate)}</b> - rejected before execution; no file read, no command run.</p>
-        <pre class="err" hidden>${esc(a.error)}</pre>
+        <p class="gatepath" hidden>${verdict}</p>
+        <pre class="err" hidden>${esc(detail)}</pre>
         <button type="button" class="attack-replay" style="border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;font:inherit;font-size:.78rem;cursor:pointer;margin-top:8px">Replay animation</button>
       </div>`;
     box.appendChild(d);
@@ -540,8 +571,8 @@ const TOURS = {
     { title: "The state machine", el: "#lane", html: "INIT \u2192 ANALYZE \u2192 PLAN \u2192 ACT \u2192 OBSERVE \u2192 VERIFY \u2192 COMPLETE. Illegal transitions raise; budgets bound the loop. Task 2 (selected) contains a replan - watch for it." },
     { title: "The gate pipeline", el: "#pipeline", html: "Every proposed call passes REQUEST \u2192 SCHEMA \u2192 POLICY \u2192 JAIL \u2192 EXECUTION \u2192 OBSERVATION. A rejection stops at its gate and is fed back as history - never executed, never a crash." },
     { title: "Watch a failure become a fix", el: "#story-failure", html: "The strongest moment: on task 2 the first test run exits 1, the runtime REPLANs, the planner edits the constant, the suite reruns green, VERIFY confirms, COMPLETE. Press the 'Failure → fix walkthrough' button right here to be guided through it." },
-    { title: "Attack the jail", el: "#jail-sec", html: "Hostile calls against the real ToolRegistry with captured rejection text - each stops at the gate that catches it. No arbitrary commands, no backend." },
-    { title: "The benchmark record", el: "#bench-sec", html: "4/4 deterministic, zero failed tool calls; the live Gemini run passes 2/2 on the same runtime with two 429s absorbed. Keyboard: Space play/pause, arrows step, R reset." },
+    { title: "Attack the runtime", el: "#jail-sec", html: "36 hostile calls replayed against the real ToolRegistry with recorded outcomes: most stop at the gate that catches them, a few run and gain nothing, and one is the documented residual (agent-written test code runs as the host user). No backend." },
+    { title: "The benchmark record", el: "#bench-sec", html: "4/4 deterministic, zero failed tool calls; the recorded live Gemini run passed 2/2 (one run, earlier runtime revision) with two 429s absorbed. Keyboard: Space play/pause, arrows step, R reset." },
   ]},
   failure: { steps: [
     { title: "1. The suite is red", onEnter: () => { taskId = "task_02_failing_test"; cursor = 1; renderTasks(); renderStep(true); },
@@ -549,13 +580,13 @@ const TOURS = {
     { title: "2. The runtime replans", onEnter: () => { cursor = 1; renderStep(true); }, el: "#lane",
       html: "OBSERVE sees the failed tests \u2192 REPLAN \u2192 PLAN. The planner is fed the failure as history - it cannot declare success, it can only propose the next action." },
     { title: "3. Locate the bug", onEnter: () => { cursor = 2; renderStep(true); }, el: "#action-card",
-      html: "Proposed: search for TAX_RATE. Schema valid, policy AUTO, path jail not needed (read-only). The observation finds billing/invoice.py:3 - TAX_RATE = 0.20." },
+      html: "Proposed: search for TAX_RATE. Schema valid, policy AUTO, and the default glob is jailed like any path. The observation finds billing/invoice.py:3 - TAX_RATE = 0.20." },
     { title: "4. The minimal fix", onEnter: () => { cursor = 3; renderStep(true); }, el: "#action-card",
       html: "Proposed: apply_edit 0.20 \u2192 0.25 - one ambiguous-match-free replacement. The runtime jails the path, executes, and records 'edited billing/invoice.py: 1 replacement'." },
     { title: "5. Green - but not yet complete", onEnter: () => { cursor = 4; renderStep(true); }, el: "#obs-card",
       html: "The suite reruns: exit=0. Note: this is still just an observation. COMPLETE is unreachable from here." },
     { title: "6. VERIFY, then COMPLETE", onEnter: () => { cursor = 5; renderStep(true); }, el: "#lane",
-      html: "The runtime re-runs the suite itself in VERIFY. Only exit=0 evidence opens COMPLETE - the model's word is never enough. That is the whole thesis." },
+      html: "The runtime re-runs the suite itself in VERIFY. Only its own passing run opens COMPLETE - the model's word is never enough. That is the whole thesis." },
   ]},
 };
 
