@@ -17,3 +17,6 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# LaTeX build output (make report-build)
+reports/build/
