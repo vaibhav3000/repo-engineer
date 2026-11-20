@@ -20,9 +20,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: data.js must match the committed results
-        run: |
-          python demo-site/build.py
-          git diff --exit-code demo-site/data.js
+        run: python demo-site/build.py --check
       - uses: actions/setup-node@v7
         with:
           node-version: 22

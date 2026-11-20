@@ -8,23 +8,32 @@ on:
 permissions:
   contents: read
 
+# Dependencies come from uv.lock (`uv sync --locked` fails if it is stale). uv
+# itself is pinned to the version that wrote the lock; setup-uv has no
+# floating major tag, so the action is pinned to a release too.
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
+          version: "0.11.32"
           python-version: "3.13"
-          cache: pip
-      - name: Install package with dev tools
-        run: python -m pip install -e ".[dev]"
+          enable-cache: true
+      - name: Install from the lock
+        run: uv sync --locked --all-extras
       - name: Ruff lint
-        run: ruff check .
+        run: uv run --locked ruff check .
       - name: Ruff format
-        run: ruff format --check .
+        run: uv run --locked ruff format --check .
       - name: Pyright
-        run: pyright
+        run: uv run --locked pyright
+      - name: Published numbers match the committed results
+        run: |
+          uv run --locked python scripts/sync_docs.py --check
+          uv run --locked python demo-site/build.py --check
 
   test:
     strategy:
@@ -35,23 +44,24 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
+          version: "0.11.32"
           python-version: ${{ matrix.python-version }}
-          cache: pip
-      - name: Install package with dev tools
-        run: python -m pip install -e ".[dev]"
+          enable-cache: true
+      - name: Install from the lock
+        run: uv sync --locked --all-extras
       # On Ubuntu a Linux Docker daemon answers, so the Docker sandbox tests run
       # (the image is built from its pinned recipe on first use) and the
       # benchmark uses the Docker sandbox; Windows runners use the local one.
       - name: Tests
-        run: python -m pytest -q
+        run: uv run --locked python -m pytest -q
       - name: Regenerate the deterministic benchmark (fails if any task fails)
-        run: python scripts/run_benchmark.py --sandbox auto
+        run: uv run --locked python scripts/run_benchmark.py --sandbox auto
       - name: Regenerate the jail-attack evidence for the local sandbox (fails on any breach)
-        run: python scripts/run_jail_attacks.py --backend local
+        run: uv run --locked python scripts/run_jail_attacks.py --backend local
       - name: Regenerate the jail-attack evidence for the Docker sandbox
         if: runner.os == 'Linux'
-        run: python scripts/run_jail_attacks.py --backend docker
+        run: uv run --locked python scripts/run_jail_attacks.py --backend docker
       - name: Committed results must be reproduced exactly
         run: git diff --exit-code results/
