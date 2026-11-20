@@ -25,5 +25,5 @@ automatically whenever a Linux Docker daemon answers, and `LocalSandbox`
 - The docker command is configurable (`REPO_ENGINEER_DOCKER_CMD`), because on
   some machines the engine lives inside WSL2 and is reached as
   `wsl -d <distro> -e docker`; host paths are then translated to `/mnt/...`.
-- Every pytest run pays container start-up (about a second); a run that needs
+- Every pytest run pays container start-up time (not measured here); a run that needs
   third-party packages needs its own image.

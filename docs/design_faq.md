@@ -21,8 +21,8 @@ verification is a run the runtime performs itself, budgets force termination.
 **Why not just use LangChain / an off-the-shelf agent framework?**
 The interesting engineering here is exactly what frameworks hide: tool schemas,
 rejection handling, the workspace jail, permission policy, verification and
-budget semantics. Building them by hand (about 3,200 lines of Python under
-`src/repo_engineer`, not counting the task fixtures) made every behavior
+budget semantics. Building them by hand (in `src/repo_engineer`, apart from
+the optional provider SDKs and the MCP library) made every behavior
 inspectable and testable. A framework would also have made the committed
 benchmark results depend on a fast-moving third-party API.
 
@@ -32,10 +32,13 @@ benchmark results depend on a fast-moving third-party API.
 `ToolRegistry.execute` returns a rejection Observation (unknown tool, schema
 violation, unknown argument, wrong type, out-of-range value, oversized string)
 that is recorded in the trace and fed back to the planner as history. The
-runtime never crashes on planner output. The scripted benchmark shows zero
+runtime never crashes on planner output. The scripted benchmark records no
 failed tool calls because its recipes are valid; the rejection paths are
-exercised by the tests and by the recorded adversarial calls (47 against the
-local sandbox, 49 against the Docker sandbox).
+exercised by the tests and by the recorded adversarial calls.
+
+<!-- generated:jail-line -->
+Recorded adversarial calls: 47 against the local sandbox and 49 against the docker sandbox.
+<!-- /generated:jail-line -->
 
 **How do you prevent arbitrary shell execution?**
 There is no shell tool. `run_tests` is the only EXECUTION tool, and it does
@@ -166,19 +169,20 @@ ToolCall, which flows through exactly the same validation, jail, permission
 policy and verification as the scripted proposals.
 
 **What did the live run demonstrate beyond the scripted one?**
-Recovery from provider failures: the gemini run hit HTTP 429 twice in the
-second task. Each error surfaced after the provider client's own retries were
-exhausted; the runtime counted them as recoverable planner errors
-(`planner_errors` is 2 in the corrected results) and the run still ended in
+Recovery from provider failures: the gemini run hit HTTP 429 errors in the
+second task. Each surfaced after the provider client's own retries were
+exhausted; the runtime counted them as recoverable planner errors (see
+`planner_errors` in the corrected results) and the run still ended in
 COMPLETE with a green suite. The model also chose its own edits (it wrote a
 test file with different cases than the scripted recipe): capability, not
 just machinery.
 
 **What are the LLM-mode's limits?**
-Sample size: two tasks, once each, recorded with an earlier revision of the
-runtime and without a trace; it is a demonstration, not a leaderboard. The
-live script now runs k attempts per task and keeps every run with its traces,
-but it has not been re-run. Nondeterminism: temperature 0 reduces but does not
+Sample size: part of the original task set, once each, recorded with an
+earlier prompt-parsed planner and runtime revision and without a trace; it is a demonstration, not a leaderboard. The
+live benchmark (`repo-engineer bench --live`) now uses native tool calling,
+runs k attempts per task, reports pass@1 and pass@k and keeps every run with
+its traces, but no live pass@k has been measured yet. Nondeterminism: temperature 0 reduces but does not
 eliminate variance, and the provider can change the model under the same
 name. Cost and latency: every step is an API round trip.
 
