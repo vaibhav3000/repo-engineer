@@ -113,7 +113,7 @@ permission policies, a lexical workspace jail and a flag-level allowlist for
 test execution (Section~\ref{sec:tools}); (3) a state-machine runtime with
 step, replan and planner-error budgets and a verification gate that the
 planner cannot steer (Section~\ref{sec:runtime}); (4) a reproducible
-four-task benchmark, a live Gemini run recorded separately, and generated
+multi-file benchmark, a live Gemini run recorded separately, and generated
 adversarial evidence (Section~\ref{sec:eval}); and (5) an explicit account
 of residual risks (Section~\ref{sec:limits}).
 
@@ -350,8 +350,8 @@ outcomes; the test suite re-runs the attacks and requires the committed
 evidence to match exactly with no breach. An independent adversarial review
 of the hardened runtime found further bypasses (among them a workspace file
 named like a pytest argument file, and planted bytecode that replaced a
-protected test); they were fixed, and the three expressible as tool calls
-were added to the evidence. Eight further attacks target the sandbox
+protected test); they were fixed, and those expressible as tool calls
+were added to the evidence. Further attacks target the sandbox
 itself: reading or writing host files, the network, a process that outlives
 the run, memory, a fork bomb, filling the disk, a conftest planted during a
 run, and forging the report. Under the local backend several of them are
@@ -359,8 +359,8 @@ documented residuals; under Docker all are contained except report forging,
 which happens inside the test process on every backend. A review of the
 Step 2 runtime found further issues (a patch applied from an incomplete
 diff could delete files, repository links were followed when copying, and
-several crash and flooding paths); all are fixed, and the two expressible
-as tool calls are in the evidence.
+several crash and flooding paths); all are fixed, and the findings
+expressible as tool calls are in the evidence.
 
 \begin{table}[t]
 \centering

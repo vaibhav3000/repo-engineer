@@ -46,11 +46,19 @@ OBSERVE -> FAILED edge.
 | `process.py` | Child environment allowlist, bounded output, process-tree kill | `run_bounded`, `child_env` |
 | `redaction.py` | Removes credential values and absolute host paths from output | `Redactor` |
 | `snapshot.py` | Starting snapshot of the workspace for `git_diff` and restores | `WorkspaceSnapshot` |
-| `planner.py` | Action proposal: deterministic recipes, live LLM, recorded replay | `Planner`, `ScriptedPlanner`, `LLMPlanner`, `RecordedPlanner` |
+| `planner.py` | Action proposal: deterministic recipes, prompt-parsed LLM fallback, recorded replay | `Planner`, `ScriptedPlanner`, `LLMPlanner`, `RecordedPlanner` |
 | `llm_provider.py` | OpenAI-compatible chat client (stdlib only) | `OpenAICompatProvider`, `LLMResponse` |
 | `agent.py` | The runtime loop, planner feedback, trace export | `AgentRuntime`, `prepare_workspace` |
 | `benchmark/harness.py` | Task suite runner and golden results | `run_benchmark`, `load_tasks` |
 | `benchmark/live.py` | Live-planner runs, k attempts, never overwritten | `run_live_benchmark` |
+| `sandbox/` | Where pytest and external tool servers run: Docker and local backends | `Sandbox`, `DockerSandbox`, `LocalSandbox`, `select_sandbox` |
+| `schema.py` | Tool JSON Schemas and the subset validator for external tools | `ToolSchema`, `validate_json_schema` |
+| `models/` | Provider adapters with native tool calling and one retry policy | `create_adapter`, `ModelAdapter`, `ProviderError` |
+| `native_planner.py` | The default model-backed planner (native tool calls, finish tool, compaction) | `NativeToolPlanner` |
+| `repo_map.py`, `patch.py`, `context.py` | Symbol index and repo map, strict unified diffs, context budget | `SymbolIndex`, `parse_patch`, `compact` |
+| `mcp_server.py`, `mcp_tools.py` | The registry over MCP, and external MCP servers mounted through the sandbox | `build_server`, `ExternalTools` |
+| `trace.py`, `replay.py` | Streamed JSONL audit trace, workspace digest, prices; offline replay | `TraceWriter`, `replay` |
+| `cli.py` | The `repo-engineer` command | `main` |
 | `benchmark/jail_attacks.py` | Adversarial tool calls and their recorded outcomes | `run_attacks` |
 
 ## Tool call pipeline

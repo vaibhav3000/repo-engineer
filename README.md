@@ -43,8 +43,9 @@ Live pass@k with the native tool-calling planner is **not yet measured**. The
 scripted benchmark replays known fix recipes: it validates the runtime, the
 gates and the sandboxes, not a model's problem solving.
 
-Every number in this README, the design FAQ, the technical report and the
-demo site is generated from the committed files in `results/` by
+Every result number (benchmark, jail suite, live run, tool count) in this
+README, the design FAQ, the technical report and the demo site is generated
+from the committed files in `results/` and from the code by
 `scripts/sync_docs.py`; `python scripts/sync_docs.py --check` runs in the test
 suite and fails the build when anything is stale.
 
@@ -265,9 +266,9 @@ Residuals by backend:
 Report forging happens inside the test process, so no sandbox can prevent it
 ([ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)). The fork
 bomb and disk-fill attacks are recorded for Docker only, because their local
-outcome depends on the operating system. Two attacks come from an independent
-review of this runtime, which also found the issues fixed in the commits that
-mention it.
+outcome depends on the operating system. The last attacks in the list come
+from an independent review of this runtime, which also found the issues fixed
+in the commits that mention it.
 
 ## Honest limitations
 
