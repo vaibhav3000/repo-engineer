@@ -4,3 +4,9 @@ results/** text eol=lf
 demo-site/data.js text eol=lf
 
 src/repo_engineer/sandbox/Dockerfile text eol=lf
+
+# Generated files are written with LF so --check compares the same bytes everywhere.
+README.md text eol=lf
+docs/** text eol=lf
+reports/*.tex text eol=lf
+reports/generated/** text eol=lf

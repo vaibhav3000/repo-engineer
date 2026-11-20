@@ -10,6 +10,8 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,fit,calc}
 \usepackage{balance}
+% Every result number comes from here (scripts/sync_docs.py).
+\input{generated/numbers.tex}
 \usepackage{etoolbox}
 % IEEEtran sets "Abstract" and "Index Terms" off with a dash; use a colon.
 \patchcmd{\abstract}{---}{:\ }{}{}
@@ -46,7 +48,7 @@ proposes actions, the runtime validates and executes them, the repository
 state provides observations, and completion is accepted only on verification
 evidence the runtime gathers itself. A deterministic state machine with nine
 states (INIT, ANALYZE\_REPO, PLAN, ACT, OBSERVE, REPLAN, VERIFY, COMPLETE,
-FAILED) wraps a pluggable planner. Seven tools are invoked only through
+FAILED) wraps a pluggable planner. \ToolCount{} built-in tools are invoked only through
 schema-validated calls, subject to AUTO/ASK/DENY permission policies and a
 workspace path jail; the single execution tool runs pytest with an
 allowlist of flags and paths. VERIFY restores the files the task protects,
@@ -54,14 +56,16 @@ re-runs the suite and accepts completion only on exit status 0 backed by a
 test report with passing tests. Agent-written code runs in a sandbox: by
 default a fresh Docker container per test run with no network and a
 read-only workspace, otherwise a local backend with resource limits. With a
-deterministic planner that replays known fixes, the agent completes all
-twelve multi-file benchmark tasks with zero failed tool calls, and the
-committed results regenerate byte for byte on Windows and Linux and under
-either sandbox. A live Gemini 2.5 Flash planner completed the two tasks it
-was run on. Of 49 adversarial tool calls against the Docker sandbox, 29 are
-rejected before anything runs and 19 run without gaining anything; the one
-residual, code under test forging its own test report, happens inside the
-test process and no sandbox can prevent it.
+deterministic planner that replays known fixes, the agent verifies
+\BenchVerified{} of \BenchTasks{} multi-file benchmark tasks with
+\BenchFailedCalls{} failed tool calls, and the committed results regenerate
+byte for byte on Windows and Linux and under either sandbox. An earlier live
+Gemini 2.5 Flash planner verified \LiveVerified{} of the \LiveTasks{} tasks
+it was run on. Of \JailDockerTotal{} adversarial tool calls against the
+Docker sandbox, \JailDockerRejected{} are rejected before anything runs and
+\JailDockerContained{} run without gaining anything; the
+\JailDockerResidual{} residual, code under test forging its own test
+report, happens inside the test process and no sandbox can prevent it.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -188,9 +192,8 @@ so every run leaves a reviewable artifact.
 
 \section{Tool Layer}
 \label{sec:tools}
-Seven tools cover the tasks the agent may perform: \texttt{list\_tree},
-\texttt{search}, \texttt{read\_file}, \texttt{apply\_edit},
-\texttt{write\_file}, \texttt{git\_diff}, and \texttt{run\_tests}. Each is
+\ToolCount{} built-in tools cover the tasks the agent may perform:
+\ToolList. Each is
 declared as a specification containing its name, description, permission
 class, typed arguments with ranges and size caps, and the arguments that are
 paths. The registry rejects unknown tools, missing or mistyped arguments
@@ -285,11 +288,12 @@ captured actions for tests without network access.
 \label{sec:eval}
 
 \subsection{Deterministic Benchmark}
-Twelve self-contained task repositories, most with several modules, are
-copied into fresh workspaces per run, and the agent runs with the scripted
-planner (Table~\ref{tab:det}). All twelve complete with zero failed tool
-calls; the three replans come from recipes that run the failing suite
-before fixing it. The results file and the per-task traces carry no paths,
+\BenchTasks{} self-contained task repositories, most with several modules,
+are copied into fresh workspaces per run, and the agent runs with the
+scripted planner (Table~\ref{tab:det}). \BenchVerified{} of \BenchTasks{}
+are verified with \BenchFailedCalls{} failed tool calls; the
+\BenchReplans{} replans come from recipes that run the failing suite before
+fixing it. The results file and the per-task traces carry no paths,
 timestamps or wall times, and regenerating them reproduces the committed
 files byte for byte under the local and the Docker sandbox; this was
 checked on Windows and in Linux containers, and CI repeats the check. Because the recipes contain the answers,
@@ -303,36 +307,18 @@ capability.
 copies).}
 \label{tab:det}
 \small
-\begin{tabular}{@{}lrrr@{}}
-\toprule
-Task & Success & Steps & Replans \\
-\midrule
-fix off-by-one loop & yes & 5 & 0 \\
-repair failing test & yes & 5 & 1 \\
-add missing test & yes & 5 & 0 \\
-constrained refactor & yes & 7 & 0 \\
-bug behind another module & yes & 6 & 1 \\
-rename across a package & yes & 5 & 0 \\
-add tests (mutants) & yes & 4 & 0 \\
-extract a shared helper & yes & 4 & 0 \\
-signature change & yes & 4 & 0 \\
-shared mutable default & yes & 5 & 1 \\
-add tests (regexes) & yes & 4 & 0 \\
-stale imports & yes & 4 & 0 \\
-\midrule
-Total & 12/12 & 58 & 3 \\
-\bottomrule
-\end{tabular}
+\input{generated/bench_table.tex}
 \end{table}
 
 \subsection{Live Gemini Run}
 With \texttt{LLMPlanner} backed by Gemini 2.5 Flash (temperature 0) through
-an OpenAI-compatible endpoint, the agent was run once on two of the four
-tasks (Table~\ref{tab:live}). Both completed with zero failed tool calls. On
-the open-ended task (adding a test file) the model wrote its own test cases
-rather than reproducing the scripted recipe. Two HTTP 429 errors occurred
-during that task; each surfaced after the provider client's own retries were
-exhausted, and the runtime absorbed both as recoverable planner errors
+an OpenAI-compatible endpoint, the agent was run once on \LiveTasks{} of the original
+tasks (Table~\ref{tab:live}), verifying \LiveVerified{} with
+\LiveFailedCalls{} failed tool calls. On the open-ended task (adding a test
+file) the model wrote its own test cases rather than reproducing the
+scripted recipe. \LivePlannerErrors{} planner errors, recorded as HTTP 429
+responses, occurred during that task, each surfacing after the provider
+client's own retries were exhausted; the runtime absorbed them as recoverable planner errors
 within its budget. The run was recorded with an earlier revision of the
 runtime, before the hardening described here, and has not been repeated;
 the live-run script now records every attempt with its trace instead of
@@ -345,20 +331,11 @@ was shared across both tasks and never reset its counters, so the committed
 file first reported cumulative values for the second task; the values shown
 are per task, computed from those recorded counters.}
 \label{tab:live}
-\small
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-Task & Success & Steps & LLM calls & Wall (s) \\
-\midrule
-fix off-by-one loop & yes & 5 & 4 & 10.0 \\
-add missing test & yes & 4 & 3 & 49.6 \\
-\midrule
-Total & 2/2 & 9 & 7 & 59.6 \\
-\bottomrule
-\end{tabular}
+\footnotesize
+\input{generated/live_table.tex}
 \end{table}
 
-Scope statement: two tasks, one run, one provider. This demonstrates the
+Scope statement: \LiveTasks{} tasks, one run, one provider. This demonstrates the
 integration, a live model proposing actions that survive the governance
 pipeline and produce verified completions, and nothing more. It is not a
 SWE-bench result.
@@ -377,7 +354,7 @@ protected test); they were fixed, and the three expressible as tool calls
 were added to the evidence. Eight further attacks target the sandbox
 itself: reading or writing host files, the network, a process that outlives
 the run, memory, a fork bomb, filling the disk, a conftest planted during a
-run, and forging the report. Under the local backend four of them are
+run, and forging the report. Under the local backend several of them are
 documented residuals; under Docker all are contained except report forging,
 which happens inside the test process on every backend. A review of the
 Step 2 runtime found further issues (a patch applied from an incomplete
@@ -392,31 +369,12 @@ for the local and the Docker sandbox. Rejected: refused before anything
 ran. Contained: ran, and the recorded evidence shows no gain.}
 \label{tab:attacks}
 \small
-\begin{tabular}{@{}lcc@{}}
-\toprule
-Category & Local & Docker \\
-\midrule
-path escape & 6/0/0 & 6/0/0 \\
-shell commands & 2/0/0 & 2/0/0 \\
-malformed calls & 3/1/0 & 3/1/0 \\
-test command abuse & 8/1/0 & 8/1/0 \\
-path aliases & 3/1/0 & 3/1/0 \\
-git metadata & 2/1/0 & 2/1/0 \\
-links & 2/3/0 & 2/3/0 \\
-verification tampering & 2/1/0 & 2/1/0 \\
-resource limits & 1/3/0 & 1/3/0 \\
-credentials & 0/1/0 & 0/1/0 \\
-agent test code & 0/1/4 & 0/7/0 \\
-report forging & 0/0/1 & 0/0/1 \\
-\midrule
-Total & 29/13/5 (47) & 29/19/1 (49) \\
-\bottomrule
-\end{tabular}
+\input{generated/attack_table.tex}
 \end{table}
 
 \section{Limitations}
 \label{sec:limits}
-(1) The scripted planner is a fixture; beyond the two live tasks, the
+(1) The scripted planner is a fixture; beyond the \LiveTasks{} live tasks, the
 benchmark says nothing about model-driven competence. (2) Without Docker,
 test execution is code execution on the host: the local backend's limits
 protect the runtime, not the host's files or network, and a process that
@@ -440,9 +398,10 @@ problem in coding agents is the governance around the model: typed tool
 schemas with unambiguous mutation semantics, a jail and an argument-level
 allowlist that keep the planner's own calls inside the workspace, budgets
 that bound every run, and a verification gate the planner cannot steer. The
-deterministic benchmark shows the machinery working 12/12 with zero failed
-tool calls and reproducible results; the live Gemini run shows a real
-model's proposals surviving the same pipeline 2/2; and the adversarial
+deterministic benchmark shows the machinery working
+\BenchVerified/\BenchTasks{} with \BenchFailedCalls{} failed tool calls and
+reproducible results; the earlier live Gemini run shows a real model's
+proposals surviving the same pipeline \LiveVerified/\LiveTasks; and the adversarial
 evidence states what is stopped and what is not. The project's limits
 (fixture planner, report forging, a still small benchmark) are part of its
 published specification.\footnote{\url{https://github.com/vaibhav3000/repo-engineer}}
