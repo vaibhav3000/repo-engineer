@@ -31,7 +31,7 @@
       "final_state": "COMPLETE",
       "steps": 4,
       "replans": 0,
-      "planner_errors": 0,
+      "planner_errors": 2,
       "files_changed": [
         "tests/test_slug.py"
       ],
@@ -39,9 +39,9 @@
         "planner error: ProviderError: HTTP 429: [{\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"You exceeded your current quota, please check your plan and billing details. For more information on this error",
         "planner error: ProviderError: HTTP 429: [{\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"You exceeded your current quota, please check your plan and billing details. For more information on this error"
       ],
-      "llm_calls": 7,
-      "llm_prompt_tokens": 3887,
-      "llm_completion_tokens": 518,
+      "llm_calls": 3,
+      "llm_prompt_tokens": 1811,
+      "llm_completion_tokens": 399,
       "llm_model": "gemini-2.5-flash",
       "wall_time_s": 49.6,
       "failed_tool_calls": 0
@@ -51,9 +51,13 @@
     "n_tasks": 2,
     "n_success": 2,
     "success_rate": 1.0,
-    "total_llm_calls": 11,
-    "total_prompt_tokens": 5963,
-    "total_completion_tokens": 637,
+    "total_llm_calls": 7,
+    "total_prompt_tokens": 3887,
+    "total_completion_tokens": 518,
     "total_failed_tool_calls": 0
-  }
+  },
+  "notes": [
+    "Recorded with an earlier revision of the runtime (before the HUMAN_REVIEW state was removed and before the November 2026 hardening). It has not been re-run.",
+    "Accounting corrected in November 2026 without re-running anything: the run shared one planner across both tasks and that planner never reset its counters, so task_03 originally reported the cumulative totals (7 calls, 3887 prompt and 518 completion tokens). Its own usage is the cumulative value minus task_01's. planner_errors had been reset after every successful call; it now counts the two HTTP 429 errors listed under errors."
+  ]
 }

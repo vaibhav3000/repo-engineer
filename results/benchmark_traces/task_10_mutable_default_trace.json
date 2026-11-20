@@ -1,0 +1,127 @@
+{
+  "task_id": "task_10_mutable_default",
+  "task_description": "Plugins enabled on one Registry show up in every other Registry. Find the shared state and fix it so each Registry has its own plugins.",
+  "workspace": "task_10_mutable_default_1",
+  "state": "COMPLETE",
+  "actions": [
+    {
+      "step": "analyze",
+      "tool": "list_tree"
+    },
+    {
+      "step": 1,
+      "tool": "run_tests",
+      "args": {
+        "cmd": "python -m pytest tests/ -q"
+      }
+    },
+    {
+      "step": 2,
+      "tool": "read_file",
+      "args": {
+        "path": "plugins/registry.py"
+      }
+    },
+    {
+      "step": 3,
+      "tool": "apply_edit",
+      "args": {
+        "path": "plugins/registry.py",
+        "old_text": "    def __init__(self, enabled=[]):\n        self.enabled = enabled",
+        "new_text": "    def __init__(self, enabled=None):\n        self.enabled = [] if enabled is None else enabled"
+      }
+    },
+    {
+      "step": 4,
+      "tool": "run_tests",
+      "args": {
+        "cmd": "python -m pytest tests/ -q"
+      }
+    },
+    {
+      "step": "verify",
+      "tool": "run_tests",
+      "args": {
+        "cmd": "python -m pytest tests/ -q"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "tool": "list_tree",
+      "ok": true
+    },
+    {
+      "tool": "run_tests",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": 1,
+      "output_excerpt": "exit=1\nF.                                                                       [100%]\n=== FAILURES ===\n___ test_registries_do_not_share_plugins ___\n\n    def test_registries_do_not_share_plugins():\n        first = load([\"audio\"])\n        second = load([\"video\"])\n>       assert first.enabled == [\"audio\"]\nE       AssertionError: assert ['audio', 'video'] == ['audio']\nE         \nE         Left contains one more item: 'video'\nE         Use -v to get more diff\n\ntests/test_registry.py:8: AssertionError\n=== short test summary info ===\nFAILED tests/test_registry.py::test_registries_do_not_share_plugins - Asserti...\n1 failed, 1 passed in <duration>\n"
+    },
+    {
+      "tool": "read_file",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": null,
+      "output_excerpt": "   1: class Registry:\n   2:     def __init__(self, enabled=[]):\n   3:         self.enabled = enabled\n   4: \n   5:     def enable(self, name: str) -> None:\n   6:         if name not in self.enabled:\n   7:             self.enabled.append(name)"
+    },
+    {
+      "tool": "apply_edit",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": null,
+      "output_excerpt": "edited plugins/registry.py: 1 replacement"
+    },
+    {
+      "tool": "run_tests",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": 0,
+      "output_excerpt": "exit=0\n..                                                                       [100%]\n2 passed in <duration>\n"
+    },
+    {
+      "tool": "run_tests",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": 0,
+      "output_excerpt": "exit=0\n..                                                                       [100%]\n2 passed in <duration>\n"
+    }
+  ],
+  "test_results": [
+    {
+      "passed": false,
+      "exit_ok": true,
+      "exit_code": 1
+    },
+    {
+      "passed": true,
+      "exit_ok": true,
+      "exit_code": 0
+    },
+    {
+      "verify": true,
+      "passed": true,
+      "exit_code": 0,
+      "restored": [],
+      "mutants_total": 0,
+      "mutants_killed": 0,
+      "neutral_edits_total": 0,
+      "neutral_edits_passed": 0
+    }
+  ],
+  "errors": [],
+  "hypothesis": "workspace has 7 entries",
+  "files_changed": [
+    "plugins/registry.py"
+  ],
+  "steps_used": 5,
+  "replans": 1,
+  "planner_errors": 0,
+  "verified": true,
+  "llm_usage": null
+}

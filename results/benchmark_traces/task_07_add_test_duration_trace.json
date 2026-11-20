@@ -1,0 +1,106 @@
+{
+  "task_id": "task_07_add_test_duration",
+  "task_description": "timeparse/duration.py has no tests. Add tests/test_duration.py covering hours, minutes, seconds, combined units and invalid input. The verifier checks that your tests catch seeded bugs and survive harmless rewrites.",
+  "workspace": "task_07_add_test_duration_1",
+  "state": "COMPLETE",
+  "actions": [
+    {
+      "step": "analyze",
+      "tool": "list_tree"
+    },
+    {
+      "step": 1,
+      "tool": "read_file",
+      "args": {
+        "path": "timeparse/duration.py"
+      }
+    },
+    {
+      "step": 2,
+      "tool": "write_file",
+      "args": {
+        "path": "tests/test_duration.py",
+        "content": "import pytest\n\nfrom timeparse.duration import parse_duration\n\n\ndef test_hours():\n    assert parse_duration('2h') == 7200\n\n\ndef test_minutes():\n    assert parse_duration('15m') == 900\n\n\ndef test_seconds():\n    assert parse_duration('45s') == 45\n\n\ndef test_combined_units():\n    assert parse_duration('1h30m15s') == 5415\n\n\n@pytest.mark.parametrize('text', ['', 'abc', '1x', 'h1', '10'])\ndef test_invalid_input(text):\n    with pytest.raises(ValueError):\n        parse_duration(text)\n"
+      }
+    },
+    {
+      "step": 3,
+      "tool": "run_tests",
+      "args": {
+        "cmd": "python -m pytest tests/ -q"
+      }
+    },
+    {
+      "step": "verify",
+      "tool": "run_tests",
+      "args": {
+        "cmd": "python -m pytest tests/ -q"
+      }
+    }
+  ],
+  "observations": [
+    {
+      "tool": "list_tree",
+      "ok": true
+    },
+    {
+      "tool": "read_file",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": null,
+      "output_excerpt": "   1: import re\n   2: \n   3: UNITS = {\"h\": 3600, \"m\": 60, \"s\": 1}\n   4: PART = re.compile(r\"(\\d+)([hms])\")\n   5: \n   6: \n   7: def parse_duration(text: str) -> int:\n   8:     \"\"\"Seconds in a duration such as 1h30m or 45s.\"\"\"\n   9:     total = 0\n  10:     consumed = 0\n  11:     for match in PART.finditer(text):\n  12:         if match.start() != consumed:\n  13:             break\n  14:         total += int(match.group(1)) * UNITS[match.group(2)]\n  15:         consumed = match.end()\n  16:     if not text or consumed != len(text):\n  17:         raise ValueError(f\"not a duration: {text!r}\")\n  18:     return total"
+    },
+    {
+      "tool": "write_file",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": null,
+      "output_excerpt": "created tests/test_duration.py (480 chars)"
+    },
+    {
+      "tool": "run_tests",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": 0,
+      "output_excerpt": "exit=0\n.........                                                                [100%]\n9 passed in <duration>\n"
+    },
+    {
+      "tool": "run_tests",
+      "ok": true,
+      "rejected": false,
+      "error": null,
+      "exit_code": 0,
+      "output_excerpt": "exit=0\n.........                                                                [100%]\n9 passed in <duration>\n"
+    }
+  ],
+  "test_results": [
+    {
+      "passed": true,
+      "exit_ok": true,
+      "exit_code": 0
+    },
+    {
+      "verify": true,
+      "passed": true,
+      "exit_code": 0,
+      "restored": [],
+      "mutants_total": 3,
+      "mutants_killed": 3,
+      "neutral_edits_total": 2,
+      "neutral_edits_passed": 2
+    }
+  ],
+  "errors": [],
+  "hypothesis": "workspace has 4 entries",
+  "files_changed": [
+    "tests/test_duration.py"
+  ],
+  "steps_used": 4,
+  "replans": 0,
+  "planner_errors": 0,
+  "verified": true,
+  "llm_usage": null
+}
