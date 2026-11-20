@@ -45,3 +45,13 @@ def test_the_state_diagram_has_exactly_the_runtime_edges() -> None:
     assert edges == {
         f"{a.value} --> {b.value}" for a, targets in TRANSITIONS.items() for b in targets
     }
+
+
+def test_the_demo_data_matches_the_committed_results() -> None:
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "demo-site" / "build.py"), "--check"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr

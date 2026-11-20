@@ -126,8 +126,8 @@
       a green test suite. Below: real executions from the committed deterministic benchmark, replayed step by step,
       and the jail's actual rejection messages.</p>
     <div class="chips">
-      <span class="chip">Deterministic benchmark: <b>12/12</b> tasks, <b>zero failed tool calls</b></span>
-      <span class="chip">Live Gemini planner: <b>2/2</b> tasks, one recorded run (2 rate-limit errors absorbed)</span>
+      <span class="chip" id="chip-bench"></span>
+      <span class="chip" id="chip-live"></span>
       <span class="chip">Completion requires the runtime's own <b>passing test run</b>, never a model's claim</span>
     </div>
   </div>
@@ -183,7 +183,7 @@
       (regenerate with <span class="mono">python scripts/run_benchmark.py</span>,
       <span class="mono">python scripts/run_jail_attacks.py</span> and <span class="mono">python demo-site/build.py</span>).
       The deterministic mode replays known fixes and remains the regression harness; the recorded LLM run demonstrates end-to-end capability
-      and covers two of the original four tasks, once each, on an earlier runtime revision: a demonstration, not a leaderboard.
+      and covers <span id="live-scope"></span> of the original tasks, once each, with an earlier prompt-parsed planner on an earlier runtime revision: a demonstration, not a leaderboard.
       Keyboard: Space play/pause, &larr;/&rarr; step, R reset - for the active player.</div>
   </footer>
 </main>
@@ -207,6 +207,15 @@
 <script>
 "use strict";
 const DATA = window.DATA;
+// Every number on the page comes from data.js (built from results/ by build.py).
+const BENCH = DATA.benchmark.summary;
+const LIVE = DATA.llm_benchmark.summary;
+const LIVE_PLANNER_ERRORS = DATA.llm_benchmark.tasks.reduce((n, t) => n + (t.planner_errors || 0), 0);
+document.getElementById("chip-bench").innerHTML =
+  `Deterministic benchmark: <b>${BENCH.n_success}/${BENCH.n_tasks}</b> tasks, <b>${BENCH.total_failed_tool_calls} failed tool calls</b>`;
+document.getElementById("chip-live").innerHTML =
+  `Earlier live Gemini planner: <b>${LIVE.n_success}/${LIVE.n_tasks}</b> tasks, one recorded run (${LIVE_PLANNER_ERRORS} rate-limit errors absorbed)`;
+document.getElementById("live-scope").textContent = String(LIVE.n_tasks);
 const TASK_LABELS = {
   task_01_fix_off_by_one: "Fix off-by-one loop",
   task_02_failing_test: "Repair failing test (with replan)",
@@ -449,7 +458,7 @@ const llmRows = DATA.llm_benchmark.tasks.map(t => `
   <tr><td>${esc(TASK_LABELS[t.task_id] || t.task_id)}</td>
   <td class="${t.success ? "yes" : "no"}">${t.success ? "yes" : "no"}</td>
   <td class="num">${t.llm_calls}</td><td class="num">${t.failed_tool_calls}</td>
-  <td>${t.errors && t.errors.length ? '<span class="no">2 x HTTP 429 absorbed</span>' : "clean"}</td></tr>`).join("");
+  <td>${t.errors && t.errors.length ? '<span class="no">${t.planner_errors} planner errors (HTTP 429) absorbed</span>' : "clean"}</td></tr>`).join("");
 document.getElementById("bench-llm").innerHTML = `
   <table><thead><tr><th>task</th><th>success</th><th class="num">LLM calls</th><th class="num">failed calls</th><th>notes</th></tr></thead>
   <tbody>${llmRows}</tbody></table>
@@ -579,8 +588,8 @@ const TOURS = {
     { title: "The state machine", el: "#lane", html: "INIT \u2192 ANALYZE \u2192 PLAN \u2192 ACT \u2192 OBSERVE \u2192 VERIFY \u2192 COMPLETE. Illegal transitions raise; budgets bound the loop. Task 2 (selected) contains a replan - watch for it." },
     { title: "The gate pipeline", el: "#pipeline", html: "Every proposed call passes REQUEST \u2192 SCHEMA \u2192 POLICY \u2192 JAIL \u2192 EXECUTION \u2192 OBSERVATION. A rejection stops at its gate and is fed back as history - never executed, never a crash." },
     { title: "Watch a failure become a fix", el: "#story-failure", html: "The strongest moment: on task 2 the first test run exits 1, the runtime REPLANs, the planner edits the constant, the suite reruns green, VERIFY confirms, COMPLETE. Press the 'Failure → fix walkthrough' button right here to be guided through it." },
-    { title: "Attack the runtime", el: "#jail-sec", html: "47 hostile calls replayed against the real ToolRegistry with the local sandbox: most stop at the gate that catches them, some run and gain nothing, and the documented residuals are shown as such. The Docker sandbox contains all of them except in-process report forging. No backend." },
-    { title: "The benchmark record", el: "#bench-sec", html: "12/12 deterministic, zero failed tool calls; the recorded live Gemini run passed 2/2 (one run, earlier runtime revision) with two 429s absorbed. Keyboard: Space play/pause, arrows step, R reset." },
+    { title: "Attack the runtime", el: "#jail-sec", html: `${DATA.attacks.summary.total} hostile calls replayed against the real ToolRegistry with the local sandbox: most stop at the gate that catches them, some run and gain nothing, and the documented residuals are shown as such. The Docker sandbox contains all of them except in-process report forging. No backend.` },
+    { title: "The benchmark record", el: "#bench-sec", html: `${BENCH.n_success}/${BENCH.n_tasks} deterministic, ${BENCH.total_failed_tool_calls} failed tool calls; the recorded live Gemini run passed ${LIVE.n_success}/${LIVE.n_tasks} (one run, earlier planner and runtime revision) with ${LIVE_PLANNER_ERRORS} rate-limit errors absorbed. Keyboard: Space play/pause, arrows step, R reset.` },
   ]},
   failure: { steps: [
     { title: "1. The suite is red", onEnter: () => { taskId = "task_02_failing_test"; cursor = 1; renderTasks(); renderStep(true); },

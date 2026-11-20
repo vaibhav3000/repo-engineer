@@ -13,15 +13,19 @@ test("page loads with replay, benchmark record, and attack panel", async ({ page
   await page.goto(URL);
   await expect(page).toHaveTitle(/Agent Run Explorer/);
   await expect(page.locator("#pipeline .g")).toHaveCount(6);
-  await expect(page.locator("#task-btns button")).toHaveCount(12);
-  // one card per recorded attack in results/jail_attack_evidence.json
-  await expect(page.locator("#attacks details")).toHaveCount(47);
+  // Counts come from data.js, which build.py writes from the committed results.
   const ok = await page.evaluate(() => ({
     traces: Object.keys(window.DATA.traces).length,
-    benchmark: window.DATA.benchmark.summary.n_success,
+    tasks: window.DATA.benchmark.summary.n_tasks,
+    verified: window.DATA.benchmark.summary.n_success,
+    attacks: window.DATA.attacks.attacks.length,
   }));
-  expect(ok.traces).toBe(12);
-  expect(ok.benchmark).toBe(12);
+  await expect(page.locator("#task-btns button")).toHaveCount(ok.traces);
+  // one card per recorded attack in results/jail_attack_evidence.json
+  await expect(page.locator("#attacks details")).toHaveCount(ok.attacks);
+  expect(ok.traces).toBe(ok.tasks);
+  expect(ok.verified).toBe(ok.tasks);
+  await expect(page.locator("#chip-bench")).toContainText(`${ok.verified}/${ok.tasks}`);
   expect(errors).toEqual([]);
 });
 
