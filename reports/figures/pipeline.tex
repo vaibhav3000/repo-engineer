@@ -1,6 +1,7 @@
-% Defense in depth: what stands between a proposed tool call and the host,
-% and what verification does and does not prove. Built by make figures into
-% pipeline.pdf (report, \textwidth) and docs/figures/pipeline.{svg,png}.
+% The whole system on one page: the state machine band on top, then what
+% stands between a proposed tool call and the host, and what verification
+% does and does not prove. Built by make figures into pipeline.pdf (report,
+% \textwidth) and docs/figures/pipeline.{svg,png} (the README's hero image).
 \pdfinfoomitdate=1
 \pdftrailerid{}
 \pdfsuppressptexinfo=-1
@@ -16,11 +17,42 @@
               execute at begin node={\hyphenpenalty=10000\exhyphenpenalty=10000}},
   check/.style={box, text width=3.0cm},
   head/.style={font=\small\bfseries},
+  pill/.style={st, font=\footnotesize, minimum height=6mm, minimum width=12mm},
 }
 \begin{document}
 \begin{tikzpicture}[x=1cm, y=1cm]
 % Exactly the report's \textwidth (516pt), opaque white.
-\fill[white, use as bounding box] (0,-8.80) rectangle (516pt,0.95);
+\fill[white, use as bounding box] (0,-8.80) rectangle (516pt,4.20);
+
+% Band: the state machine around each call, simplified (fsm.tex has every
+% transition).
+\node[draw=inkcol!60, dashed, rounded corners=3pt, minimum width=18.0cm, minimum height=2.95cm]
+  (band) at (258pt,2.62) {};
+\node[head, anchor=north west, inner sep=2pt] at ($(band.north west)+(0.1,-0.05)$)
+  {Runtime state machine {\normalfont\footnotesize(simplified): PLAN yields the
+   proposal below, ACT runs it through the checks, OBSERVE returns the observation}};
+\node[pill] (sINIT) at (0.95,2.05) {INIT};
+\node[pill] (sANA) at (3.05,2.05) {ANALYZE\_REPO};
+\node[pill] (sPLAN) at (5.30,2.05) {PLAN};
+\node[pill] (sACT) at (7.00,2.05) {ACT};
+\node[pill] (sOBS) at (8.85,2.05) {OBSERVE};
+\node[pill, fill=verifyfill] (sVER) at (11.75,2.05) {VERIFY};
+\node[pill, terminal, fill=okfill] (sCOM) at (14.40,2.05) {COMPLETE};
+\node[pill, fill=replanfill] (sREP) at (7.00,3.00) {REPLAN};
+\node[pill, terminal, fill=badfill, align=center] (sFAIL) at (16.80,2.20)
+  {FAILED\\[-1pt] {\scriptsize step budget spent,}\\[-2pt] {\scriptsize planner errors,}\\[-2pt]
+   {\scriptsize or no replans left}};
+\draw[edge] (sINIT) -- (sANA);
+\draw[edge] (sANA) -- (sPLAN);
+\draw[edge] (sPLAN) -- (sACT);
+\draw[edge] (sACT) -- (sOBS);
+\draw[edge] (sOBS) -- node[lab, above] {tests passed} (sVER);
+\draw[edge] (sVER) -- node[lab, above] {verified} (sCOM);
+\draw[edge] (sVER.north) |- node[lab, pos=0.75, above] {tests or verification failed} (sREP.east);
+\draw[semithick, draw=inkcol] (sOBS.north) -- (sOBS.north |- sREP.east);
+\fill[inkcol] (sOBS.north |- sREP.east) circle (1.2pt);
+\draw[edge] (sREP.west) -| node[lab, pos=0.25, above] {replans left} (sPLAN.north);
+\draw[edge] (sOBS.south) .. controls +(0,-0.5) and +(0,-0.5) .. node[lab, below=-1pt] {next step} (sPLAN.south);
 
 % Row 1: the checks every proposed call passes, in order.
 \node[check] (prop) at (2.20,0)

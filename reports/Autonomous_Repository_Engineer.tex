@@ -136,7 +136,9 @@ budgets end in FAILED with a full trace.
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/pipeline.pdf}
-\caption{Defense in depth for one proposed tool call. A call from the native
+\caption{System overview. Top: the state machine around each call,
+simplified (Fig.~\ref{fig:fsm} has every transition). Below: defense in depth
+for one proposed tool call. A call from the native
 planner or from an MCP client must name a known tool with schema-conformant
 arguments, pass the AUTO/ASK/DENY gate and, for its declared path arguments,
 the path jail before anything runs; a refusal returns to the planner as an

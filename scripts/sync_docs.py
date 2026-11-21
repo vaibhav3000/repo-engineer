@@ -243,6 +243,44 @@ def md_jail_line(f: dict[str, Any]) -> str:
     return "Recorded adversarial calls: " + " and ".join(parts) + "."
 
 
+def md_walkthrough(f: dict[str, Any]) -> str:
+    """The README's 30-second tour of the hero figure, box by box, in order."""
+    bench = f["bench"]["summary"]
+    docker = f["jail"]["docker"]["summary"]
+    local = f["jail"]["local"]["summary"]
+    residuals = [a["id"] for a in f["jail"]["docker"]["attacks"] if a["outcome"] == "residual"]
+    if residuals != ["A46"]:
+        raise StaleError(
+            f"the walkthrough names A46 as the Docker residual, the evidence has {residuals}"
+        )
+    return "\n".join(
+        [
+            "- **Proposal → JSON Schema → Permission gate → Path jail.** The model, through"
+            " native tool calling or an MCP client, only proposes a call. The runtime checks"
+            " the schema, the AUTO/ASK/DENY policy and any declared path arguments; a refusal"
+            " returns to the planner as a rejected observation.",
+            "- **Host tools / Sandbox.** File tools run in-process under the jail. `run_tests`"
+            " and external MCP servers run in a fresh Docker container (no network, read-only"
+            " root and workspace, capabilities dropped, non-root, digest-pinned image) or,"
+            " without"
+            " Docker, a local fallback with rlimits or a Job Object.",
+            "- **Observation and the state machine band.** Each result returns as an"
+            " observation plus one JSONL trace event. PLAN, ACT and OBSERVE repeat; failing"
+            " tests go to REPLAN, and a spent step budget, repeated planner errors or no"
+            " replans left end the run in FAILED.",
+            "- **VERIFY / Residual A46.** COMPLETE only follows VERIFY: restore protected"
+            " paths, rerun the suite, require exit status 0 and a passing JUnit report"
+            f" ({bench['n_success']}/{bench['n_tasks']} scripted tasks). Docker suite:"
+            f" {docker['total']} attacks, {docker['rejected']} rejected,"
+            f" {docker['contained']} contained, {docker['residual']} residual,"
+            f" {docker['breached']} breached (local: {local['total']} attacks,"
+            f" {local['rejected']}/{local['contained']}/{local['residual']}/{local['breached']})."
+            " Docker's residual is A46, code under test forging its report inside pytest"
+            " ([ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)).",
+        ]
+    )
+
+
 # How each transition is drawn in reports/figures/fsm.tex (node names are the
 # state names). Every edge of state.TRANSITIONS needs exactly one route, so the
 # figure cannot drift from the code. Order matters: failure drops come first,
@@ -320,6 +358,7 @@ MD_BLOCKS: dict[str, Callable[[dict[str, Any]], str]] = {
     "live-table": md_live_table,
     "live-line": md_live_line,
     "tools": md_tools,
+    "walkthrough": md_walkthrough,
 }
 MD_FILES = [ROOT / "README.md", ROOT / "docs" / "design_faq.md"]
 BLOCK = re.compile(r"(<!-- generated:([a-z-]+) -->\n)(.*?)(<!-- /generated:\2 -->)", re.DOTALL)

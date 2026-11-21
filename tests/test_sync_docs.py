@@ -62,6 +62,21 @@ def test_an_undrawn_transition_fails_the_generator(monkeypatch: pytest.MonkeyPat
         module.tex_fsm_edges({})
 
 
+def test_the_walkthrough_refuses_a_docker_residual_it_does_not_name() -> None:
+    """The README walkthrough describes A46; another residual must stop the generator."""
+    module = sync_docs()
+    summary = {"total": 1, "rejected": 0, "contained": 0, "residual": 1, "breached": 0}
+    facts = {
+        "bench": {"summary": {"n_success": 1, "n_tasks": 1}},
+        "jail": {
+            "docker": {"summary": summary, "attacks": [{"id": "A99", "outcome": "residual"}]},
+            "local": {"summary": summary, "attacks": []},
+        },
+    }
+    with pytest.raises(module.StaleError, match="A99"):
+        module.md_walkthrough(facts)
+
+
 def test_the_demo_data_matches_the_committed_results() -> None:
     proc = subprocess.run(
         [sys.executable, str(ROOT / "demo-site" / "build.py"), "--check"],

@@ -6,6 +6,19 @@ agent writes is executed in a sandbox; and a task is complete only when the
 runtime's own verification run passes. The model's claim that it is done
 changes nothing.
 
+<p align="center">
+  <a href="docs/figures/pipeline.svg"><img src="docs/figures/pipeline.png" width="100%" alt="System overview: the runtime state machine (INIT, ANALYZE_REPO, PLAN, ACT, OBSERVE, REPLAN, VERIFY, COMPLETE, FAILED) above the path of one tool call: proposal, JSON Schema, permission gate, path jail, host tools or the Docker or local sandbox, observation, VERIFY, and the A46 report-forging residual (ADR 0007)"></a>
+</p>
+
+## System Walkthrough (30-Second Overview)
+
+<!-- generated:walkthrough -->
+- **Proposal → JSON Schema → Permission gate → Path jail.** The model, through native tool calling or an MCP client, only proposes a call. The runtime checks the schema, the AUTO/ASK/DENY policy and any declared path arguments; a refusal returns to the planner as a rejected observation.
+- **Host tools / Sandbox.** File tools run in-process under the jail. `run_tests` and external MCP servers run in a fresh Docker container (no network, read-only root and workspace, capabilities dropped, non-root, digest-pinned image) or, without Docker, a local fallback with rlimits or a Job Object.
+- **Observation and the state machine band.** Each result returns as an observation plus one JSONL trace event. PLAN, ACT and OBSERVE repeat; failing tests go to REPLAN, and a spent step budget, repeated planner errors or no replans left end the run in FAILED.
+- **VERIFY / Residual A46.** COMPLETE only follows VERIFY: restore protected paths, rerun the suite, require exit status 0 and a passing JUnit report (12/12 scripted tasks). Docker suite: 49 attacks, 29 rejected, 19 contained, 1 residual, 0 breached (local: 47 attacks, 29/13/5/0). Docker's residual is A46, code under test forging its report inside pytest ([ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)).
+<!-- /generated:walkthrough -->
+
 ## The problem
 
 Coding agents tend to fail in three ways: they parse free-text tool calls and
@@ -68,10 +81,12 @@ COMPLETE is reachable only from VERIFY, which restores the protected files, re-r
 
 ### Every tool call passes the same gates
 
-[![Defense in depth: proposal, JSON Schema, permission gate, path jail, then host tools or the sandbox, then VERIFY and the A46 residual](docs/figures/pipeline.png)](docs/figures/pipeline.svg)
-
-*A call from the native planner or an MCP client runs only after the schema check, the AUTO/ASK/DENY gate and the jail on its declared path arguments; a refusal goes back to the planner.<br>
-`run_tests` and external MCP servers run in the sandbox, yet code under test can still forge its report from inside pytest (residual A46, [ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)).*
+The diagram at the top shows the path. A call from the native planner or an
+MCP client runs only after the schema check, the AUTO/ASK/DENY gate and the
+jail on its declared path arguments; a refusal goes back to the planner.
+`run_tests` and external MCP servers run in the sandbox, yet code under test
+can still forge its report from inside pytest (residual A46,
+[ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)).
 
 ### Sandbox backends
 
