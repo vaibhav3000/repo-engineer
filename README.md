@@ -7,16 +7,16 @@ runtime's own verification run passes. The model's claim that it is done
 changes nothing.
 
 <p align="center">
-  <a href="docs/figures/pipeline.svg"><img src="docs/figures/pipeline.png" width="100%" alt="System overview: the runtime state machine (INIT, ANALYZE_REPO, PLAN, ACT, OBSERVE, REPLAN, VERIFY, COMPLETE, FAILED) above the path of one tool call: proposal, JSON Schema, permission gate, path jail, host tools or the Docker or local sandbox, observation, VERIFY, and the A46 report-forging residual (ADR 0007)"></a>
+  <img src="docs/figures/hero_sketch.png" width="100%" alt="Sketch-style system diagram of repo-engineer. The Model proposes a tool call that passes JSON Schema, Permission gate and Path jail; rejected calls return to the planner as observations. Allowed calls run in the Execution group: Host tools, the Docker sandbox or the Local fallback. Each result comes back as an Observation that feeds the 9-state machine (INIT, ANALYZE_REPO, PLAN, ACT, OBSERVE, VERIFY, COMPLETE, FAILED, REPLAN). Badges show 12/12 multi-file tasks and 49 attacks with 0 breaches and 1 residual; a note explains residual A46 (ADR 0007), report forging inside pytest.">
 </p>
 
 ## System Walkthrough (30-Second Overview)
 
 <!-- generated:walkthrough -->
-- **Proposal → JSON Schema → Permission gate → Path jail.** The model, through native tool calling or an MCP client, only proposes a call. The runtime checks the schema, the AUTO/ASK/DENY policy and any declared path arguments; a refusal returns to the planner as a rejected observation.
-- **Host tools / Sandbox.** File tools run in-process under the jail. `run_tests` and external MCP servers run in a fresh Docker container (no network, read-only root and workspace, capabilities dropped, non-root, digest-pinned image) or, without Docker, a local fallback with rlimits or a Job Object.
-- **Observation and the state machine band.** Each result returns as an observation plus one JSONL trace event. PLAN, ACT and OBSERVE repeat; failing tests go to REPLAN, and a spent step budget, repeated planner errors or no replans left end the run in FAILED.
-- **VERIFY / Residual A46.** COMPLETE only follows VERIFY: restore protected paths, rerun the suite, require exit status 0 and a passing JUnit report (12/12 scripted tasks). Docker suite: 49 attacks, 29 rejected, 19 contained, 1 residual, 0 breached (local: 47 attacks, 29/13/5/0). Docker's residual is A46, code under test forging its report inside pytest ([ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)).
+- **Model → JSON Schema → Permission gate → Path jail.** The model, through native tool calls or MCP, only proposes. The runtime requires a known tool with valid arguments, applies AUTO, ASK or DENY per permission class, and keeps declared path arguments in the workspace. Anything refused lands in **Rejected calls return to the planner as observations**.
+- **Execution: Host tools, Docker sandbox, or Local fallback.** File tools (read, search, edit, `apply_patch`) run in the host process. `run_tests` and external MCP servers run in the Docker sandbox (no network, read-only root, capabilities dropped, non-root) or, without Docker, the Local fallback (rlimits or a Windows Job Object, no network isolation). Against Docker: 49 attacks, 0 breaches, 1 residual.
+- **Observation → State machine, 9 states.** Each result returns as an Observation (ok, exit code, redacted output, one JSONL trace event). INIT and ANALYZE_REPO lead into the PLAN, ACT, OBSERVE loop; failing tests or a failed verification go to REPLAN, which returns to PLAN while replans are left; a spent step budget, repeated planner errors or no replans left end in FAILED.
+- **VERIFY → COMPLETE, and the A46 note.** COMPLETE only follows VERIFY, which restores the protected paths and pytest control files, reruns the suite in the sandbox and needs exit status 0 plus a passing JUnit report (12/12 multi-file tasks with the scripted planner). Residual A46 ([ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)): code under test could still forge a passing report; protected tests, mutants and review narrow it.
 <!-- /generated:walkthrough -->
 
 ## The problem

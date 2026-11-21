@@ -244,10 +244,13 @@ def md_jail_line(f: dict[str, Any]) -> str:
 
 
 def md_walkthrough(f: dict[str, Any]) -> str:
-    """The README's 30-second tour of the hero figure, box by box, in order."""
+    """The README's 30-second tour of the hero image (docs/figures/hero_sketch.png).
+
+    Each bullet names the image's boxes exactly as drawn. The counts come from
+    results/, so they match the badges the image carries.
+    """
     bench = f["bench"]["summary"]
     docker = f["jail"]["docker"]["summary"]
-    local = f["jail"]["local"]["summary"]
     residuals = [a["id"] for a in f["jail"]["docker"]["attacks"] if a["outcome"] == "residual"]
     if residuals != ["A46"]:
         raise StaleError(
@@ -255,28 +258,30 @@ def md_walkthrough(f: dict[str, Any]) -> str:
         )
     return "\n".join(
         [
-            "- **Proposal → JSON Schema → Permission gate → Path jail.** The model, through"
-            " native tool calling or an MCP client, only proposes a call. The runtime checks"
-            " the schema, the AUTO/ASK/DENY policy and any declared path arguments; a refusal"
-            " returns to the planner as a rejected observation.",
-            "- **Host tools / Sandbox.** File tools run in-process under the jail. `run_tests`"
-            " and external MCP servers run in a fresh Docker container (no network, read-only"
-            " root and workspace, capabilities dropped, non-root, digest-pinned image) or,"
-            " without"
-            " Docker, a local fallback with rlimits or a Job Object.",
-            "- **Observation and the state machine band.** Each result returns as an"
-            " observation plus one JSONL trace event. PLAN, ACT and OBSERVE repeat; failing"
-            " tests go to REPLAN, and a spent step budget, repeated planner errors or no"
-            " replans left end the run in FAILED.",
-            "- **VERIFY / Residual A46.** COMPLETE only follows VERIFY: restore protected"
-            " paths, rerun the suite, require exit status 0 and a passing JUnit report"
-            f" ({bench['n_success']}/{bench['n_tasks']} scripted tasks). Docker suite:"
-            f" {docker['total']} attacks, {docker['rejected']} rejected,"
-            f" {docker['contained']} contained, {docker['residual']} residual,"
-            f" {docker['breached']} breached (local: {local['total']} attacks,"
-            f" {local['rejected']}/{local['contained']}/{local['residual']}/{local['breached']})."
-            " Docker's residual is A46, code under test forging its report inside pytest"
-            " ([ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)).",
+            "- **Model → JSON Schema → Permission gate → Path jail.** The model, through"
+            " native tool calls or MCP, only proposes. The runtime requires a known tool with"
+            " valid arguments, applies AUTO, ASK or DENY per permission class, and keeps"
+            " declared path arguments in the workspace. Anything refused lands in **Rejected"
+            " calls return to the planner as observations**.",
+            "- **Execution: Host tools, Docker sandbox, or Local fallback.** File tools (read,"
+            " search, edit, `apply_patch`) run in the host process. `run_tests` and external"
+            " MCP servers run in the Docker sandbox (no network, read-only root, capabilities"
+            " dropped, non-root) or, without Docker, the Local fallback (rlimits or a Windows"
+            f" Job Object, no network isolation). Against Docker: {docker['total']} attacks,"
+            f" {docker['breached']} breaches, {docker['residual']} residual.",
+            "- **Observation → State machine, 9 states.** Each result returns as an"
+            " Observation (ok, exit code, redacted output, one JSONL trace event). INIT and"
+            " ANALYZE_REPO lead into the PLAN, ACT, OBSERVE loop; failing tests or a failed"
+            " verification go to REPLAN, which returns to PLAN while replans are left; a spent"
+            " step budget, repeated planner errors or no replans left end in FAILED.",
+            "- **VERIFY → COMPLETE, and the A46 note.** COMPLETE only follows VERIFY, which"
+            " restores the protected paths and pytest control files, reruns the suite in the"
+            " sandbox and needs exit status 0 plus a passing JUnit report"
+            f" ({bench['n_success']}/{bench['n_tasks']} multi-file tasks with the scripted"
+            " planner). Residual A46"
+            " ([ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)): code under"
+            " test could still forge a passing report; protected tests, mutants and review"
+            " narrow it.",
         ]
     )
 
