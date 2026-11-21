@@ -119,14 +119,15 @@ of residual risks (Section~\ref{sec:limits}).
 
 \section{System Overview}
 \label{sec:overview}
-Fig.~\ref{fig:arch} shows the division of authority. The planner (scripted
+Fig.~\ref{fig:pipeline} shows the division of authority. The planner (scripted
 recipes, a recorded replay, or an LLM over an OpenAI-compatible endpoint)
 emits one structured proposal per turn: a tool name and an argument object,
 or a \texttt{done} declaration. The runtime alone decides what happens:
 known tool, schema-conformant arguments, permission policy, and workspace
 containment are all checked before any effect; rejected proposals become
 observations returned to the planner rather than exceptions. The state
-machine advances through ANALYZE\_REPO, PLAN, ACT and OBSERVE, and then
+machine (Fig.~\ref{fig:fsm}) advances through ANALYZE\_REPO, PLAN, ACT and
+OBSERVE, and then
 either back to PLAN, to REPLAN on a failing test run, or to VERIFY, where the
 runtime runs the suite itself. COMPLETE is reachable only from VERIFY. Step,
 replan and consecutive planner-error budgets bound every run, and exhausted
@@ -134,55 +135,30 @@ budgets end in FAILED with a full trace.
 
 \begin{figure*}[t]
 \centering
-\resizebox{\textwidth}{!}{
-\begin{tikzpicture}[x=1cm,y=1cm,
-  st/.style={draw, rounded corners, fill=blue!6, minimum height=9mm,
-             minimum width=16mm, align=center},
-  ter/.style={st, fill=green!12},
-  bad/.style={st, fill=red!8},
-  arr/.style={-{Latex[length=2.5mm]}, thick},
-  lab/.style={font=\footnotesize, fill=white, inner sep=1.5pt}]
-% ---- row 1: main path ----
-\node[st] (init)    at (0.0, 0)    {INIT};
-\node[st] (ana)     at (2.8, 0)    {ANALYZE\_REPO};
-\node[st] (plan)    at (5.5, 0)    {PLAN};
-\node[st] (act)     at (7.9, 0)    {ACT};
-\node[st] (obs)     at (10.2, 0)   {OBSERVE};
-\node[st] (verify)  at (13.6, 0)   {VERIFY};
-\node[ter] (done)   at (16.6, 0)   {COMPLETE};
-% ---- row 2: failure handling ----
-\node[st] (replan)  at (5.5, -2.3) {REPLAN};
-\node[bad] (failed) at (10.2, -2.3) {FAILED};
-% ---- main-path arrows ----
-\draw[arr] (init)   -- (ana);
-\draw[arr] (ana)    -- (plan);
-\draw[arr] (plan)   -- (act);
-\draw[arr] (act)    -- (obs);
-\draw[arr] (obs)    -- node[lab]{green tests} (verify);
-\draw[arr] (verify) -- node[lab]{evidence} (done);
-% ---- failure branch: OBSERVE -> REPLAN -> PLAN ----
-\draw[arr] (obs.south) to[out=-90,in=25]
-  node[lab, pos=0.4, above left=0.5mm]{test failure} (replan.north east);
-\draw[arr] (replan.north) -- node[lab, right=1mm]{revised plan} (plan.south);
-% ---- failure exits to FAILED ----
-\draw[arr] (replan) -- node[lab, below=0.6mm]{no replans left} (failed);
-\draw[arr] (verify.south) to[out=-75,in=20]
-  node[lab, pos=0.55, below right=0.4mm and 0.6mm, align=left]
-  {verification failure\\and no replans left} (failed.north east);
-% ---- invariant: the verification gate ----
-\node[draw=gray, dashed, rounded corners, inner sep=2.5mm,
-      fit=(verify)(done)] (gate) {};
-\node[font=\footnotesize, gray, above=1.2mm of gate.north west,
-      anchor=south west]
-      {verification gate: exit status 0 and a passing test report};
-\end{tikzpicture}}
-\caption{Runtime state machine. Planner proposals pass through the validated
-execution pipeline before any state advances. A failing test run goes to
-REPLAN, which returns to PLAN while replans remain and otherwise ends in
-FAILED; a failed verification takes the same route. COMPLETE is reachable
-only from VERIFY. Step and planner-error budgets can end a run in FAILED from
-PLAN (not drawn).}
-\label{fig:arch}
+\includegraphics[width=\textwidth]{figures/pipeline.pdf}
+\caption{System overview. Top: the state machine around each call,
+simplified (Fig.~\ref{fig:fsm} has every transition). Below: defense in depth
+for one proposed tool call. A call from the native
+planner or from an MCP client must name a known tool with schema-conformant
+arguments, pass the AUTO/ASK/DENY gate and, for its declared path arguments,
+the path jail before anything runs; a refusal returns to the planner as an
+observation. File tools run in the runtime's process; \texttt{run\_tests}
+and external MCP servers run in the sandbox, Docker when a Linux daemon
+answers and the local fallback otherwise. VERIFY accepts only the exit
+status and a JUnit report, which code under test can still forge from inside
+pytest (residual A46, ADR~0007).}
+\label{fig:pipeline}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fsm.pdf}
+\caption{Runtime state machine. Every arrow is generated from the transition
+table in \texttt{state.py}, and a test fails if the two disagree. A failing
+test run or a failed verification goes to REPLAN, which returns to PLAN while
+replans remain. COMPLETE is reachable only from VERIFY, which first restores
+the protected files.}
+\label{fig:fsm}
 \end{figure*}
 
 The machine is strict: transitions not present in the adjacency table raise
@@ -192,8 +168,7 @@ so every run leaves a reviewable artifact.
 
 \section{Tool Layer}
 \label{sec:tools}
-\ToolCount{} built-in tools cover the tasks the agent may perform:
-\ToolList. Each is
+The agent can call exactly \ToolCount{} built-in tools: \ToolList. Each is
 declared as a specification containing its name, description, permission
 class, typed arguments with ranges and size caps, and the arguments that are
 paths. The registry rejects unknown tools, missing or mistyped arguments
@@ -269,8 +244,8 @@ around every such run. The planner's claim is never consulted. Files changed by 
 edits are tracked by their workspace path, and the full state serializes to
 a JSON trace.
 
-The planner interface has four implementations with distinct, stated
-roles. \texttt{ScriptedPlanner} replays per-task recipes that already
+The planner interface has four implementations, each with a stated role.
+The \texttt{ScriptedPlanner} replays per-task recipes that already
 contain the fix: it is a test fixture that exercises the runtime at zero
 cost, and it solves nothing. \texttt{NativeToolPlanner}, the default for
 models, uses each provider's native function calling (Gemini, OpenAI,
@@ -345,22 +320,19 @@ A generator script replays hostile tool calls against a real registry and
 one sandbox backend,
 each in a fresh workspace with a secret directory beside it, a directory
 link pointing at that secret, protected tests and a repository whose git
-configuration would run a hook. Table~\ref{tab:attacks} summarizes the
-outcomes; the test suite re-runs the attacks and requires the committed
-evidence to match exactly with no breach. An independent adversarial review
-of the hardened runtime found further bypasses (among them a workspace file
-named like a pytest argument file, and planted bytecode that replaced a
-protected test); they were fixed, and those expressible as tool calls
-were added to the evidence. Further attacks target the sandbox
-itself: reading or writing host files, the network, a process that outlives
-the run, memory, a fork bomb, filling the disk, a conftest planted during a
-run, and forging the report. Under the local backend several of them are
-documented residuals; under Docker all are contained except report forging,
-which happens inside the test process on every backend. A review of the
-Step 2 runtime found further issues (a patch applied from an incomplete
-diff could delete files, repository links were followed when copying, and
-several crash and flooding paths); all are fixed, and the findings
-expressible as tool calls are in the evidence.
+configuration would run a hook. Fig.~\ref{fig:attacks} and
+Table~\ref{tab:attacks} summarize the outcomes; the test suite re-runs the attacks and requires the committed
+evidence to match exactly with no breach. Two independent reviews found
+further faults (among them a workspace file named like a pytest argument
+file, planted bytecode that replaced a protected test, a patch from an
+incomplete diff that could delete files, and links followed when copying);
+all are fixed, and those expressible as tool calls are in the evidence.
+Further attacks target the sandbox itself: reading or writing host files,
+the network, a process that outlives the run, memory, a fork bomb, filling
+the disk, a conftest planted during a run, and forging the report. Under the
+local backend several of them are documented residuals; under Docker all are
+contained except report forging, which happens inside the test process on
+every backend.
 
 \begin{table}[t]
 \centering
@@ -371,6 +343,17 @@ ran. Contained: ran, and the recorded evidence shows no gain.}
 \small
 \input{generated/attack_table.tex}
 \end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/attacks.pdf}
+\caption{Attack outcomes per backend; each bar is its own suite. Docker also
+runs the fork-bomb and disk-fill attacks, and contains the host-file,
+network and orphan-process attacks that are documented residuals under the
+local fallback. Its only residual is report forging (A46, ADR~0007). The
+counts come from the committed evidence files via \texttt{numbers.tex}.}
+\label{fig:attacks}
+\end{figure}
 
 \section{Limitations}
 \label{sec:limits}

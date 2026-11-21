@@ -11,3 +11,9 @@ docs/** text eol=lf
 reports/*.tex text eol=lf
 reports/generated/** text eol=lf
 Makefile text eol=lf
+
+# Figure sources stay LF like the other report sources; the rendered copies
+# are binary (the SVGs under docs/ stay LF text).
+reports/figures/*.tex text eol=lf
+*.png binary
+*.pdf binary

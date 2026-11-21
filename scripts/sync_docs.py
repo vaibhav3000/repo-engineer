@@ -243,13 +243,109 @@ def md_jail_line(f: dict[str, Any]) -> str:
     return "Recorded adversarial calls: " + " and ".join(parts) + "."
 
 
-def md_state_diagram(_f: dict[str, Any]) -> str:
-    lines = ["```mermaid", "stateDiagram-v2", "    [*] --> INIT"]
-    for source in State:
-        for target in sorted(TRANSITIONS[source], key=lambda s: list(State).index(s)):
-            lines.append(f"    {source.value} --> {target.value}")
-    lines += ["    COMPLETE --> [*]", "    FAILED --> [*]", "```"]
-    return "\n".join(lines)
+def md_walkthrough(f: dict[str, Any]) -> str:
+    """The README's 30-second tour of the hero figure, box by box, in order."""
+    bench = f["bench"]["summary"]
+    docker = f["jail"]["docker"]["summary"]
+    local = f["jail"]["local"]["summary"]
+    residuals = [a["id"] for a in f["jail"]["docker"]["attacks"] if a["outcome"] == "residual"]
+    if residuals != ["A46"]:
+        raise StaleError(
+            f"the walkthrough names A46 as the Docker residual, the evidence has {residuals}"
+        )
+    return "\n".join(
+        [
+            "- **Proposal → JSON Schema → Permission gate → Path jail.** The model, through"
+            " native tool calling or an MCP client, only proposes a call. The runtime checks"
+            " the schema, the AUTO/ASK/DENY policy and any declared path arguments; a refusal"
+            " returns to the planner as a rejected observation.",
+            "- **Host tools / Sandbox.** File tools run in-process under the jail. `run_tests`"
+            " and external MCP servers run in a fresh Docker container (no network, read-only"
+            " root and workspace, capabilities dropped, non-root, digest-pinned image) or,"
+            " without"
+            " Docker, a local fallback with rlimits or a Job Object.",
+            "- **Observation and the state machine band.** Each result returns as an"
+            " observation plus one JSONL trace event. PLAN, ACT and OBSERVE repeat; failing"
+            " tests go to REPLAN, and a spent step budget, repeated planner errors or no"
+            " replans left end the run in FAILED.",
+            "- **VERIFY / Residual A46.** COMPLETE only follows VERIFY: restore protected"
+            " paths, rerun the suite, require exit status 0 and a passing JUnit report"
+            f" ({bench['n_success']}/{bench['n_tasks']} scripted tasks). Docker suite:"
+            f" {docker['total']} attacks, {docker['rejected']} rejected,"
+            f" {docker['contained']} contained, {docker['residual']} residual,"
+            f" {docker['breached']} breached (local: {local['total']} attacks,"
+            f" {local['rejected']}/{local['contained']}/{local['residual']}/{local['breached']})."
+            " Docker's residual is A46, code under test forging its report inside pytest"
+            " ([ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)).",
+        ]
+    )
+
+
+# How each transition is drawn in reports/figures/fsm.tex (node names are the
+# state names). Every edge of state.TRANSITIONS needs exactly one route, so the
+# figure cannot drift from the code. Order matters: failure drops come first,
+# so the one crossing (REPLAN -> PLAN over ACT -> FAILED) is drawn on top with
+# a white halo.
+FSM_ROUTES: dict[tuple[State, State], tuple[str, str]] = {
+    (State.INIT, State.FAILED): ("", "(INIT) -- (INIT |- FAILED.north)"),
+    (State.ANALYZE_REPO, State.FAILED): ("", "(ANALYZE_REPO) -- (ANALYZE_REPO |- FAILED.north)"),
+    (State.PLAN, State.FAILED): (
+        "",
+        "([xshift=-6mm]PLAN.south) -- ([xshift=-6mm]PLAN.south |- FAILED.north)",
+    ),
+    (State.ACT, State.FAILED): ("", "(ACT) -- (ACT |- FAILED.north)"),
+    (State.REPLAN, State.FAILED): (
+        "",
+        "(REPLAN) -- node[lab, right] {no replans left} (REPLAN |- FAILED.north)",
+    ),
+    (State.VERIFY, State.FAILED): (
+        "",
+        "([xshift=3mm]VERIFY.south) -- ([xshift=3mm]VERIFY.south |- FAILED.north)",
+    ),
+    (State.INIT, State.ANALYZE_REPO): ("", "(INIT) -- (ANALYZE_REPO)"),
+    (State.ANALYZE_REPO, State.PLAN): ("", "(ANALYZE_REPO) -- (PLAN)"),
+    (State.PLAN, State.ACT): ("", "(PLAN) -- (ACT)"),
+    (State.ACT, State.OBSERVE): ("", "(ACT) -- (OBSERVE)"),
+    (State.OBSERVE, State.VERIFY): ("", "(OBSERVE) -- node[lab, above] {tests passed} (VERIFY)"),
+    (State.VERIFY, State.COMPLETE): ("", "(VERIFY) -- node[lab, above] {verified} (COMPLETE)"),
+    (State.OBSERVE, State.PLAN): (
+        "",
+        "(OBSERVE.north) .. controls +(-0.2,0.85) and +(0.2,0.85) .. "
+        "node[lab, above] {next step} (PLAN.north east)",
+    ),
+    (State.PLAN, State.VERIFY): (
+        "",
+        "(PLAN.north west) .. controls +(0.4,1.9) and +(-0.4,1.9) .. "
+        "node[lab, above] {planner calls finish} (VERIFY.north)",
+    ),
+    (State.OBSERVE, State.REPLAN): ("", "(OBSERVE) -- node[lab, left] {tests failed} (REPLAN)"),
+    (State.VERIFY, State.REPLAN): (
+        "",
+        "([xshift=-3mm]VERIFY.south) |- node[lab, pos=0.3, left] {verification failed} "
+        "([yshift=-1.5mm]REPLAN.east)",
+    ),
+    (State.REPLAN, State.PLAN): (
+        ", halo",
+        "(REPLAN.west) -| node[lab, pos=0.3, below] {replans left} (PLAN.south)",
+    ),
+}
+
+
+def tex_fsm_edges(_f: dict[str, Any]) -> str:
+    """One TikZ \\draw per transition in state.TRANSITIONS, in FSM_ROUTES order."""
+    wanted = {(a, b) for a, targets in TRANSITIONS.items() for b in targets}
+    missing = sorted(f"{a.value} -> {b.value}" for a, b in wanted - FSM_ROUTES.keys())
+    extra = sorted(f"{a.value} -> {b.value}" for a, b in FSM_ROUTES.keys() - wanted)
+    if missing or extra:
+        raise StaleError(
+            "the state figure does not match state.TRANSITIONS: "
+            + (f"undrawn {', '.join(missing)}" if missing else "")
+            + (f" not a transition {', '.join(extra)}" if extra else "")
+        )
+    lines = ["% Generated by scripts/sync_docs.py from state.TRANSITIONS; do not edit by hand."]
+    for (a, b), (options, path) in FSM_ROUTES.items():
+        lines.append(f"\\draw[edge{options}] {path}; % edge {a.value} -> {b.value}")
+    return "\n".join(lines) + "\n"
 
 
 MD_BLOCKS: dict[str, Callable[[dict[str, Any]], str]] = {
@@ -262,7 +358,7 @@ MD_BLOCKS: dict[str, Callable[[dict[str, Any]], str]] = {
     "live-table": md_live_table,
     "live-line": md_live_line,
     "tools": md_tools,
-    "state-diagram": md_state_diagram,
+    "walkthrough": md_walkthrough,
 }
 MD_FILES = [ROOT / "README.md", ROOT / "docs" / "design_faq.md"]
 BLOCK = re.compile(r"(<!-- generated:([a-z-]+) -->\n)(.*?)(<!-- /generated:\2 -->)", re.DOTALL)
@@ -307,7 +403,11 @@ def tex_numbers(f: dict[str, Any]) -> str:
         "JailDockerResidual": jd["residual"],
         "JailDockerBreached": jd["breached"],
         "ToolCount": len(f["tools"]),
-        "ToolList": ", ".join("\\texttt{" + name.replace("_", "\\_") + "}" for name in f["tools"]),
+        # A break after each underscore keeps the justified column free of
+        # underfull lines; code names never hyphenate.
+        "ToolList": ", ".join(
+            "\\texttt{" + name.replace("_", "\\_\\allowbreak{}") + "}" for name in f["tools"]
+        ),
     }
     lines = ["% Generated by scripts/sync_docs.py from results/; do not edit by hand."]
     lines += [f"\\newcommand{{\\{name}}}{{{value}}}" for name, value in values.items()]
@@ -391,6 +491,7 @@ TEX_FILES: dict[str, Callable[[dict[str, Any]], str]] = {
     "bench_table.tex": tex_bench_table,
     "live_table.tex": tex_live_table,
     "attack_table.tex": tex_attack_table,
+    "fsm_edges.tex": tex_fsm_edges,
 }
 
 

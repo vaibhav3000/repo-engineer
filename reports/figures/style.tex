@@ -1,0 +1,23 @@
+% Shared look of the report figures: Times and Courier like the report body,
+% a colour-blind-safe palette, thin dark lines.
+\definecolor{statefill}{HTML}{E8EEF7}
+\definecolor{verifyfill}{HTML}{DCE9F5}
+\definecolor{replanfill}{HTML}{FFF2CC}
+\definecolor{okfill}{HTML}{DFF0E0}
+\definecolor{badfill}{HTML}{F8DEDE}
+\definecolor{rejectcol}{HTML}{4477AA}
+\definecolor{containcol}{HTML}{66CCEE}
+\definecolor{residualcol}{HTML}{EE6677}
+\definecolor{breachcol}{HTML}{222222}
+\definecolor{inkcol}{HTML}{333333}
+\tikzset{
+  st/.style={draw=inkcol, rounded corners=2pt, fill=statefill, font=\small,
+             minimum height=8mm, minimum width=16mm, inner sep=2pt},
+  terminal/.style={st, double, double distance=1.2pt},
+  edge/.style={-{Stealth[length=2.2mm, width=1.6mm]}, semithick, draw=inkcol},
+  halo/.style={preaction={draw, white, line width=3.2pt, -}},
+  lab/.style={font=\scriptsize, fill=white, inner sep=1pt, text=inkcol},
+  note/.style={draw=inkcol!60, dashed, rounded corners=2pt, fill=white,
+               font=\scriptsize, align=left, inner sep=3pt, text=inkcol},
+  notelink/.style={dashed, draw=inkcol!60},
+}

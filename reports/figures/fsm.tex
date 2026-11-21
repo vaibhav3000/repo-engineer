@@ -1,0 +1,46 @@
+% The runtime state machine. Built once (make figures) into fsm.pdf, which the
+% report includes at \textwidth and the README shows as PNG and SVG.
+% Nodes are placed here; every edge comes from reports/generated/fsm_edges.tex,
+% which scripts/sync_docs.py writes from state.TRANSITIONS.
+\pdfinfoomitdate=1
+\pdftrailerid{}
+\pdfsuppressptexinfo=-1
+\documentclass[border=0pt]{standalone}
+\usepackage{mathptmx}
+\usepackage{courier}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,calc,positioning}
+\input{style.tex}
+\begin{document}
+\begin{tikzpicture}[x=1cm, y=1cm]
+% Exactly the report's \textwidth (516pt = 18.15cm), opaque white.
+% The bottom margin also sets where the report's page 4 columns break; at
+% this height both columns fill without an underfull box.
+\fill[white, use as bounding box] (0,-4.90) rectangle (516pt,2.35);
+
+\node[st] (INIT)         at (0.95,0) {INIT};
+\node[st] (ANALYZE_REPO) at (3.60,0) {ANALYZE\_REPO};
+\node[st] (PLAN)         at (6.30,0) {PLAN};
+\node[st] (ACT)          at (8.35,0) {ACT};
+\node[st] (OBSERVE)      at (10.50,0) {OBSERVE};
+\node[st, fill=verifyfill] (VERIFY) at (13.75,0) {VERIFY};
+\node[terminal, fill=okfill] (COMPLETE) at (16.95,0) {COMPLETE};
+\node[st, fill=replanfill] (REPLAN) at (10.50,-2.0) {REPLAN};
+\node[terminal, fill=badfill, minimum width=14.6cm, align=center] (FAILED) at (7.45,-3.95)
+  {FAILED\quad{\scriptsize (terminal: budget exhausted, repeated planner errors, or no replans left)}};
+
+% Start marker.
+\fill[black!80] ($(INIT.north)+(0,0.75)$) circle (2pt);
+\draw[edge] ($(INIT.north)+(0,0.72)$) -- (INIT.north);
+
+% Every transition of state.TRANSITIONS.
+\input{../generated/fsm_edges.tex}
+
+% VERIFY is a state; restoring protected files is a step inside it.
+\node[note, anchor=north west, text width=2.8cm] (restore) at (14.85,-1.05)
+  {Inside VERIFY: restore protected paths and pytest control files, rerun
+   the suite in the sandbox, require exit status 0 and a JUnit report with a
+   passing test and no failures.};
+\draw[notelink] (restore.north west) -- (VERIFY.south east);
+\end{tikzpicture}
+\end{document}

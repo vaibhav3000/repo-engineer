@@ -37,14 +37,44 @@ def test_an_attack_without_a_table_group_fails_the_generator() -> None:
         module.group_of({"id": "A98", "category": "new kind"})
 
 
-def test_the_state_diagram_has_exactly_the_runtime_edges() -> None:
+def test_the_state_figure_draws_exactly_the_runtime_edges() -> None:
+    """The report's and README's state diagram is drawn from the transition table."""
     from repo_engineer.state import TRANSITIONS
 
-    diagram = sync_docs().md_state_diagram({})
-    edges = {line.strip() for line in diagram.splitlines() if "-->" in line and "[*]" not in line}
-    assert edges == {
-        f"{a.value} --> {b.value}" for a, targets in TRANSITIONS.items() for b in targets
+    edges_tex = sync_docs().tex_fsm_edges({})
+    drawn = {
+        line.split("% edge ", 1)[1].strip() for line in edges_tex.splitlines() if "% edge " in line
     }
+    assert drawn == {
+        f"{a.value} -> {b.value}" for a, targets in TRANSITIONS.items() for b in targets
+    }
+    assert edges_tex.count("\\draw") == len(drawn)
+
+
+def test_an_undrawn_transition_fails_the_generator(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = sync_docs()
+    from repo_engineer.state import State
+
+    routes = dict(module.FSM_ROUTES)
+    routes.pop((State.REPLAN, State.PLAN))
+    monkeypatch.setattr(module, "FSM_ROUTES", routes)
+    with pytest.raises(module.StaleError, match="REPLAN -> PLAN"):
+        module.tex_fsm_edges({})
+
+
+def test_the_walkthrough_refuses_a_docker_residual_it_does_not_name() -> None:
+    """The README walkthrough describes A46; another residual must stop the generator."""
+    module = sync_docs()
+    summary = {"total": 1, "rejected": 0, "contained": 0, "residual": 1, "breached": 0}
+    facts = {
+        "bench": {"summary": {"n_success": 1, "n_tasks": 1}},
+        "jail": {
+            "docker": {"summary": summary, "attacks": [{"id": "A99", "outcome": "residual"}]},
+            "local": {"summary": summary, "attacks": []},
+        },
+    }
+    with pytest.raises(module.StaleError, match="A99"):
+        module.md_walkthrough(facts)
 
 
 def test_the_demo_data_matches_the_committed_results() -> None:
