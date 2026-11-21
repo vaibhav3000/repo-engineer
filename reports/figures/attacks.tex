@@ -1,0 +1,77 @@
+% Outcome of the jail attack suite on each backend. Every count is a macro
+% from reports/generated/numbers.tex, which scripts/sync_docs.py writes from
+% results/jail_attack_evidence_docker.json and results/jail_attack_evidence.json.
+% Built by make figures into attacks.pdf (report, \columnwidth) and
+% docs/figures/attacks.{svg,png}.
+\pdfinfoomitdate=1
+\pdftrailerid{}
+\pdfsuppressptexinfo=-1
+\documentclass[border=0pt]{standalone}
+\usepackage{mathptmx}
+\usepackage{courier}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\input{style.tex}
+\input{../generated/numbers.tex}
+% Bars share one scale: the larger suite spans the plot width.
+\newcommand{\plotwidth}{5.55}
+\newcommand{\barheight}{0.62}
+\pgfmathsetmacro{\unit}{\plotwidth/max(\JailDockerTotal,\JailLocalTotal)}
+% One segment: #1 start, #2 count, #3 y, #4 fill, #5 text colour.
+% A segment of at least four attacks carries its count inside; a narrower
+% one carries it just above the bar.
+\newcommand{\segment}[5]{%
+  \ifnum#2>0
+    \fill[#4] (#1*\unit,#3) rectangle ({(#1+#2)*\unit},#3+\barheight);
+    \ifnum#2>3
+      \node[font=\footnotesize, text=#5] at ({(#1+#2/2)*\unit},#3+\barheight/2) {#2};
+    \else
+      \node[font=\footnotesize, text=inkcol, anchor=south, inner sep=1pt]
+        at ({(#1+#2/2)*\unit},#3+\barheight) {#2};
+    \fi
+  \fi}
+% One bar: #1 y, #2 rejected, #3 contained, #4 residual, #5 breached.
+\newcommand{\attackbar}[5]{%
+  \segment{0}{#2}{#1}{rejectcol}{white}%
+  \segment{#2}{#3}{#1}{containcol}{inkcol}%
+  \pgfmathtruncatemacro{\startres}{#2+#3}%
+  \segment{\startres}{#4}{#1}{residualcol}{inkcol}%
+  \pgfmathtruncatemacro{\startbre}{#2+#3+#4}%
+  \segment{\startbre}{#5}{#1}{breachcol}{white}%
+  \draw[inkcol, thin] (0,#1) rectangle ({(#2+#3+#4+#5)*\unit},#1+\barheight);}
+\newcommand{\legendkey}[3]{%
+  \fill[#3] (#1,#2) rectangle ++(0.26,0.26);
+  \draw[inkcol, thin] (#1,#2) rectangle ++(0.26,0.26);}
+\begin{document}
+\begin{tikzpicture}[x=1cm, y=1cm]
+% Exactly the report's \columnwidth (252pt), opaque white. The plot starts
+% at x = 0 after the row labels.
+\fill[white, use as bounding box] (-3.05,-1.75) rectangle ($(-3.05,2.35)+(252pt,0)$);
+
+\attackbar{1.20}{\JailDockerRejected}{\JailDockerContained}{\JailDockerResidual}{\JailDockerBreached}
+\attackbar{0.20}{\JailLocalRejected}{\JailLocalContained}{\JailLocalResidual}{\JailLocalBreached}
+
+\node[anchor=east, align=right, font=\footnotesize] at (-0.12,1.20+\barheight/2)
+  {\textbf{Docker sandbox}\\ \JailDockerTotal{} attacks, \JailDockerBreached{} breached};
+\node[anchor=east, align=right, font=\footnotesize] at (-0.12,0.20+\barheight/2)
+  {\textbf{Local fallback}\\ \JailLocalTotal{} attacks, \JailLocalBreached{} breached};
+
+% Count axis.
+\draw[inkcol, thin] (0,0) -- (\plotwidth,0);
+\foreach \t in {0,10,...,40} {
+  \draw[inkcol, thin] (\t*\unit,0) -- ++(0,-0.08);
+  \node[font=\scriptsize, text=inkcol, anchor=north, inner sep=2pt] at (\t*\unit,-0.08) {\t};
+}
+\node[font=\scriptsize, text=inkcol, anchor=north] at (\plotwidth/2,-0.38) {attacks};
+
+% Legend.
+\legendkey{-2.95}{-1.35}{rejectcol}
+\node[font=\scriptsize, anchor=west] at (-2.65,-1.22) {rejected before execution};
+\legendkey{0.95}{-1.35}{containcol}
+\node[font=\scriptsize, anchor=west] at (1.25,-1.22) {contained by the sandbox};
+\legendkey{-2.95}{-1.70}{residualcol}
+\node[font=\scriptsize, anchor=west] at (-2.65,-1.57) {residual (succeeds, documented)};
+\legendkey{0.95}{-1.70}{breachcol}
+\node[font=\scriptsize, anchor=west] at (1.25,-1.57) {breached (succeeds, undocumented)};
+\end{tikzpicture}
+\end{document}

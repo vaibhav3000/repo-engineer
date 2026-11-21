@@ -35,6 +35,11 @@ Scripted mode: 12/12 tasks verified, 3 replans, 0 failed tool calls.
 | docker | 49 | 29 | 19 | 1 | 0 |
 <!-- /generated:jail-summary -->
 
+[![Attack outcomes per backend: Docker and the local fallback, each bar labelled with its own number of attacks](docs/figures/attacks.png)](docs/figures/attacks.svg)
+
+*Each bar is its own suite: Docker also runs the fork-bomb and disk-fill attacks and contains the host-file, network and orphan-process attacks that stay residual locally.<br>
+Nothing is breached on either backend; Docker's only residual is report forging (A46). The counts are drawn from the evidence files in `results/`.*
+
 <!-- generated:live-line -->
 Recorded on 2026-09-17 with `gemini-2.5-flash` and the earlier prompt-parsed JSON planner: 2/2 tasks verified, 7 model calls, 3887 prompt and 518 completion tokens, one attempt per task.
 <!-- /generated:live-line -->
@@ -54,55 +59,19 @@ suite and fails the build when anything is stale.
 ### The state machine
 
 The runtime owns every transition. Any edge not in `state.TRANSITIONS` raises,
-and the diagram below is generated from that table.
+and every arrow in the figure below is generated from that table.
 
-<!-- generated:state-diagram -->
-```mermaid
-stateDiagram-v2
-    [*] --> INIT
-    INIT --> ANALYZE_REPO
-    INIT --> FAILED
-    ANALYZE_REPO --> PLAN
-    ANALYZE_REPO --> FAILED
-    PLAN --> ACT
-    PLAN --> VERIFY
-    PLAN --> FAILED
-    ACT --> OBSERVE
-    ACT --> FAILED
-    OBSERVE --> PLAN
-    OBSERVE --> REPLAN
-    OBSERVE --> VERIFY
-    REPLAN --> PLAN
-    REPLAN --> FAILED
-    VERIFY --> REPLAN
-    VERIFY --> COMPLETE
-    VERIFY --> FAILED
-    COMPLETE --> [*]
-    FAILED --> [*]
-```
-<!-- /generated:state-diagram -->
+[![The runtime state machine: INIT, ANALYZE_REPO, PLAN, ACT, OBSERVE, REPLAN and VERIFY, ending in COMPLETE or FAILED](docs/figures/fsm.png)](docs/figures/fsm.svg)
+
+*Every arrow comes from `state.TRANSITIONS` through `scripts/sync_docs.py`, and a test fails if the drawing and the table disagree.<br>
+COMPLETE is reachable only from VERIFY, which restores the protected files, re-runs the suite and needs exit status 0 plus a passing JUnit report.*
 
 ### Every tool call passes the same gates
 
-```mermaid
-flowchart TD
-    P["planner proposal (native tool call)<br/>or MCP client tools/call"] --> V{"known tool and<br/>arguments match its schema?"}
-    V -->|no| REJ["rejected observation<br/>(recorded, fed back)"]
-    V -->|yes| POL{"permission policy<br/>AUTO / ASK / DENY"}
-    POL -->|"DENY or unapproved ASK"| REJ
-    POL -->|allowed| JAIL{"path jail on declared<br/>path arguments"}
-    JAIL -->|"escape, alias, link,<br/>read-only target"| REJ
-    JAIL -->|inside| KIND{"tool kind"}
-    KIND -->|"read / edit / patch"| HOST["runs on the host under the jail"]
-    KIND -->|"run_tests: command check"| SBX["runs in the sandbox"]
-    KIND -->|"external MCP tool"| EXT["external server, started through the sandbox"]
-    HOST --> OBS["observation: ok, exit code,<br/>redacted output, latency"]
-    SBX --> OBS
-    EXT --> OBS
-    OBS --> TRACE["audit trace event (JSONL)"]
-    style REJ fill:#f5d5d3
-    style SBX fill:#d4f0d4
-```
+[![Defense in depth: proposal, JSON Schema, permission gate, path jail, then host tools or the sandbox, then VERIFY and the A46 residual](docs/figures/pipeline.png)](docs/figures/pipeline.svg)
+
+*A call from the native planner or an MCP client runs only after the schema check, the AUTO/ASK/DENY gate and the jail on its declared path arguments; a refusal goes back to the planner.<br>
+`run_tests` and external MCP servers run in the sandbox, yet code under test can still forge its report from inside pytest (residual A46, [ADR 0007](docs/adr/0007-report-forging-is-outside-the-sandbox.md)).*
 
 ### Sandbox backends
 

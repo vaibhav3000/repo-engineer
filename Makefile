@@ -15,9 +15,10 @@ PY = $(RUN) python
 DOCKER ?= $(or $(REPO_ENGINEER_DOCKER_CMD),docker)
 REPORT = Autonomous_Repository_Engineer
 REPORT_BUILD = build
+FIGURES = fsm pipeline attacks
 
 .PHONY: help setup lint typecheck test docs docs-check bench bench-check jail jail-check \
-	report report-build sandbox-image docker text-check check
+	figures figures-check report report-build sandbox-image docker text-check check
 
 help:
 	@echo "setup         install every dependency from uv.lock"
@@ -30,6 +31,8 @@ help:
 	@echo "bench-check   run the benchmark twice (auto and local sandbox), results/ must not change"
 	@echo "jail          regenerate the attack evidence (local, and docker when available)"
 	@echo "jail-check    regenerate the evidence, results/ must not change"
+	@echo "figures       rebuild the report figures and their README SVG and PNG copies"
+	@echo "figures-check rebuild the figures, they must not change"
 	@echo "report        rebuild the report PDF and copy it into reports/"
 	@echo "sandbox-image build the Docker sandbox image"
 	@echo "docker        build the benchmark and test images"
@@ -78,6 +81,23 @@ jail:
 jail-check: jail
 	git diff --exit-code --stat results/
 
+# One TikZ source per figure in reports/figures. Its PDF goes into the report;
+# the README shows an SVG and a 2x PNG (192 dpi) made from that same PDF.
+# The sources draw from reports/generated, so docs runs first.
+figures: docs
+	cd reports/figures && for f in $(FIGURES); do \
+		latexmk -pdf -interaction=nonstopmode -halt-on-error -outdir=build $$f.tex && \
+		cp build/$$f.pdf $$f.pdf || exit 1; \
+	done
+	mkdir -p docs/figures
+	for f in $(FIGURES); do \
+		pdftocairo -svg reports/figures/$$f.pdf docs/figures/$$f.svg && \
+		pdftoppm -png -r 192 -singlefile reports/figures/$$f.pdf docs/figures/$$f || exit 1; \
+	done
+
+figures-check: figures
+	git diff --exit-code --stat reports/figures docs/figures
+
 # The PDF is not byte-reproducible, so the gate builds it into reports/build
 # (ignored) and only `make report` copies it over the committed one.
 report-build:
@@ -93,7 +113,7 @@ docker:
 	$(DOCKER) build -t repo-engineer .
 	$(DOCKER) build --target test -t repo-engineer-test .
 
-check: lint typecheck docs-check text-check test bench-check jail-check report-build
+check: lint typecheck docs-check text-check test bench-check jail-check figures-check report-build
 	git status --porcelain
 	@test -z "$$(git status --porcelain)" || (echo "the gate left the tree dirty"; exit 1)
 	@echo "gate passed"
