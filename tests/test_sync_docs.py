@@ -43,11 +43,11 @@ def test_the_state_figure_draws_exactly_the_runtime_edges() -> None:
 
     edges_tex = sync_docs().tex_fsm_edges({})
     drawn = {
-        line.split("% edge ", 1)[1].strip()
-        for line in edges_tex.splitlines()
-        if "% edge " in line
+        line.split("% edge ", 1)[1].strip() for line in edges_tex.splitlines() if "% edge " in line
     }
-    assert drawn == {f"{a.value} -> {b.value}" for a, targets in TRANSITIONS.items() for b in targets}
+    assert drawn == {
+        f"{a.value} -> {b.value}" for a, targets in TRANSITIONS.items() for b in targets
+    }
     assert edges_tex.count("\\draw") == len(drawn)
 
 

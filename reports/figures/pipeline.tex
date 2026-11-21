@@ -28,7 +28,7 @@
 \node[check] (schema) at (6.75,0)
   {{\small\bfseries JSON Schema}\\ known tool, arguments match its schema};
 \node[check] (perm) at (11.30,0)
-  {{\small\bfseries Permission gate}\\ AUTO, ASK or DENY per tool};
+  {{\small\bfseries Permission gate}\\ AUTO, ASK or DENY per permission class};
 \node[check] (jail) at (15.85,0)
   {{\small\bfseries Path jail}\\ on declared path arguments};
 \draw[edge] (prop) -- node[lab, above] {checked} (schema);
@@ -74,7 +74,7 @@
 \draw[edge] (obs.west) -- ++(-0.3,0) |- node[lab, pos=0.25, rotate=90] {next step} (prop.west);
 
 \node[box, fill=verifyfill, text width=5.4cm] (verify) at (8.95,-7.30)
-  {{\small\bfseries VERIFY}\\ restore protected tests and pytest control files,
+  {{\small\bfseries VERIFY}\\ restore protected paths and pytest control files,
    rerun the suite in the sandbox, accept only exit status 0 and a JUnit report
    with a passing test and no failures};
 \draw[edge] (obs.south) -- ++(0,-0.35) -| node[lab, pos=0.25, below] {tests passed, or the planner calls finish} (verify.south);
