@@ -32,7 +32,7 @@ help:
 	@echo "jail          regenerate the attack evidence (local, and docker when available)"
 	@echo "jail-check    regenerate the evidence, results/ must not change"
 	@echo "figures       rebuild the report figures and their README SVG and PNG copies"
-	@echo "figures-check rebuild the figures, they must not change"
+	@echo "figures-check the figures' generated inputs are current and every rendered copy is committed"
 	@echo "report        rebuild the report PDF and copy it into reports/"
 	@echo "sandbox-image build the Docker sandbox image"
 	@echo "docker        build the benchmark and test images"
@@ -82,7 +82,8 @@ jail-check: jail
 	git diff --exit-code --stat results/
 
 # One TikZ source per figure in reports/figures. Its PDF goes into the report;
-# the README shows an SVG and a 2x PNG (192 dpi) made from that same PDF.
+# the README shows an SVG and a 300 dpi PNG (over 2000 px wide for the
+# full-width figures) made from that same PDF.
 # The sources draw from reports/generated, so docs runs first.
 figures: docs
 	cd reports/figures && for f in $(FIGURES); do \
@@ -92,11 +93,23 @@ figures: docs
 	mkdir -p docs/figures
 	for f in $(FIGURES); do \
 		pdftocairo -svg reports/figures/$$f.pdf docs/figures/$$f.svg && \
-		pdftoppm -png -r 192 -singlefile reports/figures/$$f.pdf docs/figures/$$f || exit 1; \
+		pdftoppm -png -r 300 -singlefile reports/figures/$$f.pdf docs/figures/$$f || exit 1; \
 	done
 
-figures-check: figures
-	git diff --exit-code --stat reports/figures docs/figures
+# Rendered bytes differ between TeX and poppler versions, so the gate does not
+# compare them. It checks what is deterministic: the generated files the
+# figures read (numbers.tex, fsm_edges.tex and the tables) match results/ and
+# state.TRANSITIONS, and each figure's PDF, SVG and PNG is committed. After
+# changing a figure source or results/, run make figures.
+figures-check:
+	$(PY) scripts/sync_docs.py --check
+	@for f in $(FIGURES); do \
+		for out in reports/figures/$$f.pdf docs/figures/$$f.svg docs/figures/$$f.png; do \
+			git ls-files --error-unmatch $$out >/dev/null 2>&1 || \
+				{ echo "$$out is not committed: run make figures"; exit 1; }; \
+		done; \
+	done
+	@echo "figure inputs are current"
 
 # The PDF is not byte-reproducible, so the gate builds it into reports/build
 # (ignored) and only `make report` copies it over the committed one.
