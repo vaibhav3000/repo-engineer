@@ -71,13 +71,14 @@ suite and fails the build when anything is stale.
 
 ### The state machine
 
-The runtime owns every transition. Any edge not in `state.TRANSITIONS` raises,
-and every arrow in the figure below is generated from that table.
-
-[![The runtime state machine: INIT, ANALYZE_REPO, PLAN, ACT, OBSERVE, REPLAN and VERIFY, ending in COMPLETE or FAILED](docs/figures/fsm.png)](docs/figures/fsm.svg)
-
-*Every arrow comes from `state.TRANSITIONS` through `scripts/sync_docs.py`, and a test fails if the drawing and the table disagree.<br>
-COMPLETE is reachable only from VERIFY, which restores the protected files, re-runs the suite and needs exit status 0 plus a passing JUnit report.*
+The runtime owns every transition. Any edge not in `state.TRANSITIONS` raises.
+The state machine in the diagram at the top is a simplified sketch; the
+complete graph, including PLAN to VERIFY when the planner calls `finish` and
+every edge to FAILED, is [docs/figures/fsm.svg](docs/figures/fsm.svg). Every
+arrow in it comes from `state.TRANSITIONS` through `scripts/sync_docs.py`, and
+a test fails if the drawing and the table disagree. COMPLETE is reachable only
+from VERIFY, which restores the protected files, re-runs the suite and needs
+exit status 0 plus a passing JUnit report.
 
 ### Every tool call passes the same gates
 
@@ -90,14 +91,7 @@ can still forge its report from inside pytest (residual A46,
 
 ### Sandbox backends
 
-```mermaid
-flowchart LR
-    REG["ToolRegistry<br/>(checked PytestInvocation,<br/>no host paths)"] --> SEL{"select_sandbox<br/>auto / docker / local"}
-    SEL -->|"Linux Docker daemon answers"| D["DockerSandbox<br/>fresh container per run<br/>no network, read-only root and workspace,<br/>tmpfs only, no capabilities, non-root,<br/>memory, CPU and process limits,<br/>removed after every run"]
-    SEL -->|"no Docker"| L["LocalSandbox<br/>host interpreter, scrubbed env,<br/>POSIX rlimits or Windows job object,<br/>process-tree kill"]
-    D --> V["verifier in the host process:<br/>restore, run, JUnit report,<br/>mutants, neutral edits"]
-    L --> V
-```
+![Sketch of the sandbox and VERIFY. select_sandbox picks DockerSandbox when a Linux Docker daemon answers and LocalSandbox otherwise; VERIFY restores protected files, re-runs the suite in the sandbox, requires exit status 0 and a passing JUnit report, and on add-a-test tasks needs seeded mutants to fail and neutral edits to pass](docs/figures/sandbox_verify_sketch.png)
 
 `auto` picks Docker whenever a Linux daemon answers and never silently swaps
 an explicit `--sandbox docker` for the local backend. The verifier, the
@@ -111,6 +105,8 @@ with them. Design, trade-offs and the per-backend threat model are in
 <!-- generated:tools -->
 The registry has 10 built-in tools: `apply_edit`, `apply_patch`, `find_symbol`, `git_diff`, `list_tree`, `read_file`, `repo_map`, `run_tests`, `search`, `write_file`.
 <!-- /generated:tools -->
+
+![Sketch of tools, models and MCP: NativeToolPlanner, ScriptedPlanner and any MCP client reach one ToolRegistry, pass schema, policy, path jail and trace, and run in the host process or the sandbox](docs/figures/tools_sketch.png)
 
 - **Native tool calling.** `NativeToolPlanner` talks to Gemini, OpenAI,
   Anthropic or a local OpenAI-compatible server (Ollama, vLLM) through
